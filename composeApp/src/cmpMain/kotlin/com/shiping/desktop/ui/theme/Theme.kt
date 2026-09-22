@@ -9,7 +9,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
-import com.shiping.desktop.data.prefs.DesktopPrefs
+import com.shiping.shared.prefs.KeyValueStore
+import com.shiping.shared.prefs.PrefsKeys
 
 /** 主题色档位：名称 + 主色 + 浅色容器色（设置页「主题 → 颜色」可选） */
 data class ThemeColorItem(val name: String, val primary: Color, val lightContainer: Color)
@@ -55,7 +56,7 @@ private fun lightScheme(color: ThemeColorItem) = lightColorScheme(
     onSecondaryContainer = Color(0xFF17325F),
 )
 
-/** 主题模式（设置页「界面/语言 → 主题」可选，持久化于 DesktopPrefs） */
+/** 主题模式（设置页「界面/语言 → 主题」可选，持久化于 KeyValueStore） */
 object ThemeState {
     const val MODE_SYSTEM = 0
     const val MODE_LIGHT = 1
@@ -69,9 +70,9 @@ object ThemeState {
         private set
 
     /** 应用启动时从偏好恢复 */
-    fun init(prefs: DesktopPrefs) {
-        mode = prefs.getInt(DesktopPrefs.KEY_THEME_MODE, MODE_SYSTEM).coerceIn(MODE_SYSTEM, MODE_DARK)
-        val stored = prefs.getString(DesktopPrefs.KEY_THEME_COLOR, "蓝")
+    fun init(prefs: KeyValueStore) {
+        mode = prefs.getInt(PrefsKeys.KEY_THEME_MODE, MODE_SYSTEM).coerceIn(MODE_SYSTEM, MODE_DARK)
+        val stored = prefs.getString(PrefsKeys.KEY_THEME_COLOR, "蓝")
         colorName = if (ThemeColors.any { it.name == stored }) stored else "蓝"
     }
 
@@ -92,8 +93,8 @@ object UiScale {
         private set
 
     /** 应用启动时从偏好恢复（KEY_FONT_SCALE 存百分比） */
-    fun init(prefs: DesktopPrefs) {
-        fontScale = prefs.getInt(DesktopPrefs.KEY_FONT_SCALE, 100).coerceIn(80, 140) / 100f
+    fun init(prefs: KeyValueStore) {
+        fontScale = prefs.getInt(PrefsKeys.KEY_FONT_SCALE, 100).coerceIn(80, 140) / 100f
     }
 
     /** 更新缩放比例（持久化由设置页写入 prefs） */

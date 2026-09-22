@@ -34,9 +34,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.unit.dp
 import com.shiping.desktop.data.model.Vod
-import com.shiping.desktop.di.AppContainer
 import com.shiping.desktop.ui.common.EmptyView
 import com.shiping.desktop.ui.common.VideoCard
+import com.shiping.shared.graph.AppGraph
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,7 +46,7 @@ import kotlinx.coroutines.launch
 /** 聚合搜索状态：分组进度逐个回填 */
 class SearchViewModel(
     private val scope: CoroutineScope,
-    private val container: AppContainer,
+    private val graph: AppGraph,
 ) {
     private val _keyword = MutableStateFlow("")
     val keyword: StateFlow<String> = _keyword.asStateFlow()
@@ -63,7 +63,7 @@ class SearchViewModel(
         if (keyword.isEmpty() || _searching.value) return
         _keyword.value = keyword
         _searching.value = true
-        val enabledSources = container.apiSourceRepository.sources.value.filter { it.enabled && it.searchable }
+        val enabledSources = graph.apiSourceRepository.sources.value.filter { it.enabled && it.searchable }
         // 先按发起顺序占位，结果完成后按 sourceId 回填
         _groups.value = enabledSources.map {
             com.shiping.desktop.data.repository.SearchGroupData(it.id, it.name, it.url)
@@ -71,7 +71,7 @@ class SearchViewModel(
         scope.launch {
             enabledSources.forEach { source ->
                 launch {
-                    val result = container.vodRepository.searchOneSource(source, keyword)
+                    val result = graph.vodRepository.searchOneSource(source, keyword)
                     _groups.value = _groups.value.toMutableList().apply {
                         val insertAt = indexOfFirst { it.sourceId == source.id }
                         if (insertAt >= 0) this[insertAt] = result else add(result)
@@ -86,9 +86,9 @@ class SearchViewModel(
 /** 搜索页：关键词输入 + 按源分组的聚合结果 */
 @Composable
 fun SearchScreen(app: AppViewModel) {
-    val container = AppContainer.get()
+    val graph = app.graph
     val scope = rememberCoroutineScope()
-    val viewModel = remember { SearchViewModel(scope, container) }
+    val viewModel = remember { SearchViewModel(scope, graph) }
     val groups by viewModel.groups.collectAsState()
     val searching by viewModel.searching.collectAsState()
     var input by remember { mutableStateOf("") }

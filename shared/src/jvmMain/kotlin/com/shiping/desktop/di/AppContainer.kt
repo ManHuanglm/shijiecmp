@@ -15,6 +15,7 @@ import com.shiping.desktop.data.repository.VodRepository
 import com.shiping.desktop.data.spider.DesktopSpiderRuntime
 import com.shiping.desktop.util.AppLog
 import com.shiping.shared.graph.AppGraph
+import com.shiping.shared.graph.ImportResult
 import com.shiping.shared.graph.TvBoxImporter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,10 +66,10 @@ class AppContainer private constructor() : AppGraph {
     lateinit var tvBoxImporter: TvBoxConfigImporter
         private set
 
-    /** TVBox 导入服务适配：结果 Summary 转人类可读消息（AppGraph 契约） */
+    /** TVBox 导入服务适配：结果 Summary 转跨端 ImportResult（AppGraph 契约） */
     override val tvBoxImporterService: TvBoxImporter = object : TvBoxImporter {
-        override suspend fun import(url: String, label: String): String =
-            tvBoxImporter.import(url, label).messageText()
+        override suspend fun import(url: String, label: String): ImportResult =
+            tvBoxImporter.import(url, label).let { ImportResult(it.messageText(), it.warehouses) }
     }
 
     /** 启动预热：默认源插入 + 各仓库刷新（AppGraph 契约，启动时后台执行一次） */

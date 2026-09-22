@@ -10,13 +10,21 @@ import com.shiping.shared.repository.VodRepository
 import kotlinx.coroutines.CoroutineScope
 
 /**
+ * 订阅导入结果（jvmCommon 跨端）：人类可读消息 + 多仓子配置。
+ * warehouses 非空表示多仓配置，设置页展开子配置列表供用户选择。
+ */
+data class ImportResult(
+    val message: String,
+    val warehouses: List<Pair<String, String>> = emptyList(),
+)
+
+/**
  * TVBox 订阅导入统一入口（桌面/Android 各自实现）。
- * 返回人类可读的结果消息（成功条数/跳过原因），供设置页直接展示。
  */
 interface TvBoxImporter {
 
-    /** 拉取并导入订阅配置（label 为展示用标签，如「饭太硬」），返回结果消息 */
-    suspend fun import(url: String, label: String = ""): String
+    /** 拉取并导入订阅配置（label 为展示用标签，如「饭太硬」），返回结果 */
+    suspend fun import(url: String, label: String = ""): ImportResult
 }
 
 /**

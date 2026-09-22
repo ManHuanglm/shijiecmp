@@ -49,26 +49,6 @@ private val navItems = listOf(
     NavItem(Screen.Settings, "设置", Icons.Filled.Settings),
 )
 
-/** 可隐藏的侧边栏 Tab（设置页「Tab 设置」配置；首页/设置固定显示） */
-val hideableTabs = listOf("搜索", "直播", "收藏", "历史")
-
-/** 侧边栏 Tab 显隐状态（设置页修改，MainWindow 响应式过滤） */
-object MainTabsState {
-    var hidden by mutableStateOf(emptySet<String>())
-        private set
-
-    /** 应用启动时从偏好恢复（KEY_HIDE_TABS 逗号分隔） */
-    fun init(prefs: com.shiping.desktop.data.prefs.DesktopPrefs) {
-        hidden = prefs.getString(com.shiping.desktop.data.prefs.DesktopPrefs.KEY_HIDE_TABS)
-            .split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet()
-    }
-
-    /** 设置/恢复某个 Tab 显隐（持久化由设置页写入 prefs） */
-    fun setHidden(label: String, hiddenTab: Boolean) {
-        hidden = if (hiddenTab) hidden + label else hidden - label
-    }
-}
-
 /** 主窗口：左侧导航 + 内容层 + 全局提示 */
 @Composable
 fun MainWindow(app: AppViewModel, windowState: WindowState) {

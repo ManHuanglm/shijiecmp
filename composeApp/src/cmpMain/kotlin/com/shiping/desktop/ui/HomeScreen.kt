@@ -42,12 +42,12 @@ import androidx.compose.ui.unit.dp
 import com.shiping.desktop.data.model.ApiSourceEntity
 import com.shiping.desktop.data.model.Category
 import com.shiping.desktop.data.model.Vod
-import com.shiping.desktop.di.AppContainer
 import com.shiping.desktop.ui.common.DropdownSelector
 import com.shiping.desktop.ui.common.EmptyView
 import com.shiping.desktop.ui.common.ErrorView
 import com.shiping.desktop.ui.common.LoadingView
 import com.shiping.desktop.ui.common.VideoCard
+import com.shiping.shared.graph.AppGraph
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -71,10 +71,10 @@ data class HomeUiState(
 /** 首页状态管理：源切换、分类筛选、分页加载 */
 class HomeViewModel(
     private val scope: CoroutineScope,
-    private val container: AppContainer,
+    private val graph: AppGraph,
 ) {
-    private val vodRepository = container.vodRepository
-    private val apiRepository = container.apiSourceRepository
+    private val vodRepository = graph.vodRepository
+    private val apiRepository = graph.apiSourceRepository
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -147,9 +147,9 @@ class HomeViewModel(
 /** 首页：顶栏（源下拉切换 + 快捷导航）+ 分类标签 + 视频网格（触底自动翻页） */
 @Composable
 fun HomeScreen(app: AppViewModel) {
-    val container = AppContainer.get()
+    val graph = app.graph
     val scope = rememberCoroutineScope()
-    val viewModel = remember { HomeViewModel(scope, container) }
+    val viewModel = remember { HomeViewModel(scope, graph) }
 
     val uiState by viewModel.uiState.collectAsState()
     val sources by viewModel.sources.collectAsState()

@@ -105,17 +105,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.shiping.desktop.data.model.ApiSourceEntity
 import com.shiping.desktop.data.model.TvSourceEntity
-import com.shiping.desktop.data.prefs.DesktopPrefs
+import com.shiping.shared.prefs.PrefsKeys
 import com.shiping.shared.spider.SpiderProxyServer
-import com.shiping.desktop.di.AppContainer
 import com.shiping.desktop.player.formatSpeed
 import com.shiping.desktop.ui.common.DropdownSelector
 import com.shiping.desktop.ui.common.TextInputRow
+import com.shiping.desktop.ui.common.StoragePathPageContent
+import com.shiping.desktop.ui.common.clearLogs
+import com.shiping.desktop.ui.common.copyTextToClipboard
+import com.shiping.desktop.ui.common.pickImportTextFile
+import com.shiping.desktop.ui.common.snapshotLogEntries
 import com.shiping.desktop.ui.theme.FixedPalette
 import com.shiping.desktop.ui.theme.ThemeColors
 import com.shiping.desktop.ui.theme.ThemeState
 import com.shiping.desktop.ui.theme.UiScale
-import com.shiping.desktop.util.AppLog
 import com.shiping.desktop.util.Constants
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -156,7 +159,7 @@ fun SettingsScreen(app: AppViewModel) {
                 SettingsPage.SUBSCRIBE -> SubscribePage(app)
                 SettingsPage.VIDEO_SOURCE -> VideoSourcePage(app, onBack = { stack.removeAt(stack.lastIndex) })
                 SettingsPage.TV_SOURCE -> TvSourcePage(app, onBack = { stack.removeAt(stack.lastIndex) })
-                SettingsPage.STORAGE_PATH -> StoragePathPage(app)
+                SettingsPage.STORAGE_PATH -> StoragePathPageContent(app)
                 SettingsPage.FEATURE -> FeatureSettingsPage(app)
                 SettingsPage.LOG -> LogPage()
                 SettingsPage.PLAY -> PlaySettingsPage(app)
@@ -259,7 +262,7 @@ private fun SettingsRow(
 /** 开关设置行（绑定偏好键持久化） */
 @Composable
 private fun PrefSwitchRow(title: String, key: String, def: Boolean, subtitle: String? = null) {
-    val prefs = AppContainer.get().prefs
+    val prefs = LocalAppGraph.current.prefs
     var checked by remember(key) { mutableStateOf(prefs.getBoolean(key, def)) }
     SettingsRow(title = title, subtitle = subtitle) {
         Switch(checked = checked, onCheckedChange = {
@@ -280,7 +283,7 @@ private fun PercentPrefRow(
     subtitle: String? = null,
     onChange: (Int) -> Unit = {},
 ) {
-    val prefs = AppContainer.get().prefs
+    val prefs = LocalAppGraph.current.prefs
     var value by remember(key) { mutableStateOf(prefs.getInt(key, def).coerceIn(range.first, range.last)) }
     StepperRow(
         title = title,
@@ -304,7 +307,7 @@ private fun PercentPrefRow(
 /** ± 步进设置行（浮点档位类偏好：倍速等） */
 @Composable
 private fun SpeedPrefRow(title: String, key: String, values: List<Float>, defIndex: Int, subtitle: String? = null) {
-    val prefs = AppContainer.get().prefs
+    val prefs = LocalAppGraph.current.prefs
     var index by remember(key) {
         mutableStateOf(values.indexOfFirst { it == prefs.getString(key).toFloatOrNull() }.takeIf { it >= 0 } ?: defIndex)
     }
@@ -328,10 +331,10 @@ private fun SpeedPrefRow(title: String, key: String, values: List<Float>, defInd
 /** ± 步进设置行（整数档位类偏好：快进快退秒数） */
 @Composable
 private fun SeekStepPrefRow() {
-    val prefs = AppContainer.get().prefs
+    val prefs = LocalAppGraph.current.prefs
     val values = Constants.SEEK_STEPS
     var index by remember {
-        mutableStateOf(values.indexOfFirst { it == prefs.getInt(DesktopPrefs.KEY_SEEK_STEP, 10) }.takeIf { it >= 0 } ?: 2)
+        mutableStateOf(values.indexOfFirst { it == prefs.getInt(PrefsKeys.KEY_SEEK_STEP, 10) }.takeIf { it >= 0 } ?: 2)
     }
     StepperRow(
         title = "快进快退",
@@ -340,11 +343,11 @@ private fun SeekStepPrefRow() {
         onPlusEnabled = index < values.lastIndex,
         onMinus = {
             index = (index - 1).coerceAtLeast(0)
-            prefs.put(DesktopPrefs.KEY_SEEK_STEP, values[index])
+            prefs.put(PrefsKeys.KEY_SEEK_STEP, values[index])
         },
         onPlus = {
             index = (index + 1).coerceAtMost(values.lastIndex)
-            prefs.put(DesktopPrefs.KEY_SEEK_STEP, values[index])
+            prefs.put(PrefsKeys.KEY_SEEK_STEP, values[index])
         },
     )
 }
@@ -468,7 +471,7 @@ private fun DesktopPlaceholderRow(icon: ImageVector, title: String, app: AppView
 /** 清理数据弹窗：图片缓存 / 播放历史 / 收藏 */
 @Composable
 private fun CleanDataDialog(app: AppViewModel, onDismiss: () -> Unit) {
-    val container = AppContainer.get()
+    val graph = LocalAppGraph.current
     val scope = rememberCoroutineScope()
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -488,14 +491,14 @@ private fun CleanDataDialog(app: AppViewModel, onDismiss: () -> Unit) {
                 }) { Text("清空图片缓存") }
                 TextButton(onClick = {
                     scope.launch {
-                        container.playHistoryRepository.clear()
+                        graph.playHistoryRepository.clear()
                         app.showMessage("播放历史已清空")
                     }
                     onDismiss()
                 }) { Text("清空播放历史") }
                 TextButton(onClick = {
                     scope.launch {
-                        container.favoriteRepository.clear()
+                        graph.favoriteRepository.clear()
                         app.showMessage("收藏已清空")
                     }
                     onDismiss()
@@ -516,7 +519,7 @@ private fun CleanDataDialog(app: AppViewModel, onDismiss: () -> Unit) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SubscribePage(app: AppViewModel) {
-    val container = AppContainer.get()
+    val graph = LocalAppGraph.current
     val scope = rememberCoroutineScope()
     var configUrl by remember { mutableStateOf("") }
     var importing by remember { mutableStateOf(false) }
@@ -527,13 +530,9 @@ private fun SubscribePage(app: AppViewModel) {
         if (!importing) {
             importing = true
             scope.launch {
-                val summary = container.tvBoxImporter.import(url, label)
-                app.showMessage(summary.messageText())
-                if (summary.warehouses.isNotEmpty()) {
-                    warehouses = summary.warehouses
-                } else {
-                    warehouses = emptyList()
-                }
+                val result = graph.tvBoxImporterService.import(url, label)
+                app.showMessage(result.message)
+                warehouses = result.warehouses
                 importing = false
             }
         }
@@ -603,9 +602,9 @@ private fun SubscribePage(app: AppViewModel) {
 /** 视频源页：顶栏齿轮菜单（管理/添加单个源）+ CMS/爬虫双 Tab + 管理模式 + 添加/编辑源 */
 @Composable
 private fun VideoSourcePage(app: AppViewModel, onBack: () -> Unit) {
-    val container = AppContainer.get()
+    val graph = LocalAppGraph.current
     val scope = rememberCoroutineScope()
-    val sources by container.apiSourceRepository.sources.collectAsState()
+    val sources by graph.apiSourceRepository.sources.collectAsState()
     var tabIndex by remember { mutableIntStateOf(0) }
     var manageMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<Long>()) }
@@ -615,7 +614,7 @@ private fun VideoSourcePage(app: AppViewModel, onBack: () -> Unit) {
 
     val spider = tabIndex == 1
     val filtered = remember(sources, spider) { sources.filter { (it.siteType == 3) == spider } }
-    val currentId = container.apiSourceRepository.currentApiId
+    val currentId = graph.apiSourceRepository.currentApiId
 
     Column(modifier = Modifier.fillMaxSize()) {
         SettingsTopBar(
@@ -654,7 +653,7 @@ private fun VideoSourcePage(app: AppViewModel, onBack: () -> Unit) {
                     }
                     IconButton(onClick = {
                         scope.launch {
-                            container.apiSourceRepository.deleteByIds(selectedIds.toList())
+                            graph.apiSourceRepository.deleteByIds(selectedIds.toList())
                             selectedIds = emptySet()
                         }
                     }) { Icon(Icons.Filled.Delete, contentDescription = "删除") }
@@ -724,7 +723,7 @@ private fun VideoSourcePage(app: AppViewModel, onBack: () -> Unit) {
                                 onCheckChange = { checked ->
                                     selectedIds = if (checked) selectedIds + source.id else selectedIds - source.id
                                 },
-                                onMoveUp = { scope.launch { container.apiSourceRepository.moveUp(source.id) } },
+                                onMoveUp = { scope.launch { graph.apiSourceRepository.moveUp(source.id) } },
                             )
                         } else {
                             VideoSourceRow(
@@ -737,17 +736,17 @@ private fun VideoSourcePage(app: AppViewModel, onBack: () -> Unit) {
                                 onClick = { editing = source },
                                 onToggleSearch = {
                                     scope.launch {
-                                        container.apiSourceRepository.setSearchable(listOf(source.id), !source.searchable)
+                                        graph.apiSourceRepository.setSearchable(listOf(source.id), !source.searchable)
                                     }
                                 },
                                 onTogglePlayRecord = {
                                     scope.launch {
-                                        container.apiSourceRepository.setPlayRecord(listOf(source.id), !source.playRecord)
+                                        graph.apiSourceRepository.setPlayRecord(listOf(source.id), !source.playRecord)
                                     }
                                 },
                                 onToggleLock = {
                                     scope.launch {
-                                        container.apiSourceRepository.setLocked(listOf(source.id), !source.locked)
+                                        graph.apiSourceRepository.setLocked(listOf(source.id), !source.locked)
                                     }
                                 },
                             )
@@ -875,7 +874,7 @@ private fun ManageHintCapsules(
     selectedIds: Set<Long>,
     spider: Boolean,
 ) {
-    val container = AppContainer.get()
+    val graph = LocalAppGraph.current
     val scope = rememberCoroutineScope()
     val ids = if (selectedIds.isEmpty()) targets.map { it.id } else selectedIds.toList()
     Row(
@@ -891,7 +890,7 @@ private fun ManageHintCapsules(
             scope.launch {
                 val first = targets.firstOrNull { it.id == ids.firstOrNull() }
                 val value = !(first?.playRecord ?: true)
-                container.apiSourceRepository.setPlayRecord(ids, value)
+                graph.apiSourceRepository.setPlayRecord(ids, value)
                 app.showMessage("已${if (value) "开启" else "关闭"} ${ids.size} 个源的播放记录")
             }
         }
@@ -899,7 +898,7 @@ private fun ManageHintCapsules(
             scope.launch {
                 val first = targets.firstOrNull { it.id == ids.firstOrNull() }
                 val value = !(first?.locked ?: false)
-                container.apiSourceRepository.setLocked(ids, value)
+                graph.apiSourceRepository.setLocked(ids, value)
                 app.showMessage("已${if (value) "锁定" else "解锁"} ${ids.size} 个源")
             }
         }
@@ -908,7 +907,7 @@ private fun ManageHintCapsules(
                 if (spider) {
                     app.showMessage("爬虫源为站点地址，请通过播放验证可用性")
                 } else {
-                    val usable = container.apiSourceRepository.checkUsable(ids)
+                    val usable = graph.apiSourceRepository.checkUsable(ids)
                     app.showMessage("检测完成：可用 $usable / 共 ${ids.size} 个")
                 }
             }
@@ -937,7 +936,7 @@ private fun ManageCapsule(text: String, onClick: () -> Unit) {
 /** 批量添加 CMS 源表单：多行文本（名称,地址 / 名称$地址 / 仅地址）+ 放入首位/上锁/播放记录 */
 @Composable
 private fun AddSourceForm(app: AppViewModel, onClose: () -> Unit) {
-    val container = AppContainer.get()
+    val graph = LocalAppGraph.current
     val scope = rememberCoroutineScope()
     var text by remember { mutableStateOf("") }
     var putFirst by remember { mutableStateOf(false) }
@@ -971,7 +970,7 @@ private fun AddSourceForm(app: AppViewModel, onClose: () -> Unit) {
                     return@Button
                 }
                 scope.launch {
-                    val count = container.apiSourceRepository
+                    val count = graph.apiSourceRepository
                         .batchInsertCms(text, putFirst, locked, record)
                     app.showMessage(if (count > 0) "已添加 $count 个源" else "未解析到有效源")
                     if (count > 0) onClose()
@@ -986,7 +985,7 @@ private fun AddSourceForm(app: AppViewModel, onClose: () -> Unit) {
 /** 编辑源表单：名称/备注/UA + 上锁/播放记录 + 设为当前源/保存 */
 @Composable
 private fun EditSourceForm(app: AppViewModel, source: ApiSourceEntity, onClose: () -> Unit) {
-    val container = AppContainer.get()
+    val graph = LocalAppGraph.current
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf(source.name) }
     var note by remember { mutableStateOf(source.note) }
@@ -994,7 +993,7 @@ private fun EditSourceForm(app: AppViewModel, source: ApiSourceEntity, onClose: 
     var locked by remember { mutableStateOf(source.locked) }
     var record by remember { mutableStateOf(source.playRecord) }
     var searchable by remember { mutableStateOf(source.searchable) }
-    var isCurrent by remember { mutableStateOf(container.apiSourceRepository.currentApiId == source.id) }
+    var isCurrent by remember { mutableStateOf(graph.apiSourceRepository.currentApiId == source.id) }
 
     Column(
         modifier = Modifier
@@ -1029,7 +1028,7 @@ private fun EditSourceForm(app: AppViewModel, source: ApiSourceEntity, onClose: 
         if (!isCurrent) {
             OutlinedButton(
                 onClick = {
-                    container.apiSourceRepository.setCurrentApiId(source.id)
+                    graph.apiSourceRepository.setCurrentApiId(source.id)
                     isCurrent = true
                     app.showMessage("已设为当前源")
                 },
@@ -1044,7 +1043,7 @@ private fun EditSourceForm(app: AppViewModel, source: ApiSourceEntity, onClose: 
                     return@Button
                 }
                 scope.launch {
-                    container.apiSourceRepository.update(
+                    graph.apiSourceRepository.update(
                         source.copy(
                             name = name.trim(),
                             note = note.trim(),
@@ -1148,10 +1147,10 @@ private fun CheckOption(label: String, checked: Boolean, onChange: (Boolean) -> 
 /** 直播源页：顶栏批量添加/文件导入 + 列表点击编辑 + 删除 */
 @Composable
 private fun TvSourcePage(app: AppViewModel, onBack: () -> Unit) {
-    val container = AppContainer.get()
+    val graph = LocalAppGraph.current
     val scope = rememberCoroutineScope()
-    val sources by container.tvRepository.sources.collectAsState()
-    val currentId = container.tvRepository.currentTvId()
+    val sources by graph.tvRepository.sources.collectAsState()
+    val currentId = graph.tvRepository.currentTvId()
     var showAdd by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<TvSourceEntity?>(null) }
     val editTarget = editing
@@ -1176,13 +1175,10 @@ private fun TvSourcePage(app: AppViewModel, onBack: () -> Unit) {
                     Icon(Icons.Filled.Add, contentDescription = "批量添加")
                 }
                 IconButton(onClick = {
-                    val chooser = javax.swing.JFileChooser().apply {
-                        fileFilter = javax.swing.filechooser.FileNameExtensionFilter("文本文件 (txt)", "txt")
-                    }
-                    if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
-                        val path = chooser.selectedFile.absolutePath
-                        scope.launch {
-                            val count = container.tvRepository.importFile(path)
+                    scope.launch {
+                        val path = pickImportTextFile("导入直播源")
+                        if (path != null) {
+                            val count = graph.tvRepository.importFile(path)
                             app.showMessage(if (count > 0) "已导入 $count 个直播源" else "未解析到有效源")
                         }
                     }
@@ -1207,7 +1203,7 @@ private fun TvSourcePage(app: AppViewModel, onBack: () -> Unit) {
                             detail = source.url,
                             isCurrent = source.id == currentId,
                             onClick = { editing = source },
-                            onDelete = { scope.launch { container.tvRepository.deleteById(source.id) } },
+                            onDelete = { scope.launch { graph.tvRepository.deleteById(source.id) } },
                         )
                     }
                 }
@@ -1269,7 +1265,7 @@ private fun TvSourceRow(
 /** 批量添加直播源表单：多行「名称,url」或「仅url」 */
 @Composable
 private fun BatchAddTvForm(app: AppViewModel, onClose: () -> Unit) {
-    val container = AppContainer.get()
+    val graph = LocalAppGraph.current
     val scope = rememberCoroutineScope()
     var text by remember { mutableStateOf("") }
 
@@ -1294,7 +1290,7 @@ private fun BatchAddTvForm(app: AppViewModel, onClose: () -> Unit) {
                     return@Button
                 }
                 scope.launch {
-                    val count = container.tvRepository.batchInsert(text)
+                    val count = graph.tvRepository.batchInsert(text)
                     app.showMessage(if (count > 0) "已添加 $count 个直播源" else "未解析到有效源")
                     if (count > 0) onClose()
                 }
@@ -1308,13 +1304,13 @@ private fun BatchAddTvForm(app: AppViewModel, onClose: () -> Unit) {
 /** 编辑直播源表单：名称/地址/备注 + 设为当前源/保存 */
 @Composable
 private fun EditTvSourceForm(app: AppViewModel, source: TvSourceEntity, onClose: () -> Unit) {
-    val container = AppContainer.get()
+    val graph = LocalAppGraph.current
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf(source.name) }
     var url by remember { mutableStateOf(source.url) }
     var note by remember { mutableStateOf(source.note) }
     var isCurrent by remember {
-        mutableStateOf(container.tvRepository.currentTvId() == source.id)
+        mutableStateOf(graph.tvRepository.currentTvId() == source.id)
     }
 
     Column(
@@ -1335,7 +1331,7 @@ private fun EditTvSourceForm(app: AppViewModel, source: TvSourceEntity, onClose:
         if (!isCurrent) {
             OutlinedButton(
                 onClick = {
-                    container.prefs.put(DesktopPrefs.KEY_CURRENT_TV_ID, source.id)
+                    graph.prefs.put(PrefsKeys.KEY_CURRENT_TV_ID, source.id)
                     isCurrent = true
                     app.showMessage("已设为当前源")
                 },
@@ -1350,7 +1346,7 @@ private fun EditTvSourceForm(app: AppViewModel, source: TvSourceEntity, onClose:
                     return@Button
                 }
                 scope.launch {
-                    container.tvRepository.update(
+                    graph.tvRepository.update(
                         source.copy(name = name.trim(), url = url.trim(), note = note.trim()),
                     )
                     app.showMessage("已保存")
@@ -1370,14 +1366,14 @@ private fun EditTvSourceForm(app: AppViewModel, source: TvSourceEntity, onClose:
 /** 功能设置：过滤广告 / 播放记录 / 触感 / 代理 / 按键码 */
 @Composable
 private fun FeatureSettingsPage(app: AppViewModel) {
-    val prefs = AppContainer.get().prefs
+    val prefs = LocalAppGraph.current.prefs
     var showProxy by remember { mutableStateOf(false) }
-    var proxy by remember { mutableStateOf(prefs.getString(DesktopPrefs.KEY_HTTP_PROXY)) }
+    var proxy by remember { mutableStateOf(prefs.getString(PrefsKeys.KEY_HTTP_PROXY)) }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        PrefSwitchRow("过滤切片广告", DesktopPrefs.KEY_FILTER_SLICE_AD, false)
-        PrefSwitchRow("播放记录", DesktopPrefs.KEY_PLAY_RECORD_ENABLED, true)
-        PrefSwitchRow("触感提示", DesktopPrefs.KEY_TOUCH_HINT, false)
+        PrefSwitchRow("过滤切片广告", PrefsKeys.KEY_FILTER_SLICE_AD, false)
+        PrefSwitchRow("播放记录", PrefsKeys.KEY_PLAY_RECORD_ENABLED, true)
+        PrefSwitchRow("触感提示", PrefsKeys.KEY_TOUCH_HINT, false)
         SettingsRow("代理", proxy.ifBlank { "未启用" }, onClick = { showProxy = true })
         SettingsRow("按键码", onClick = { app.showMessage("桌面端无需按键码设置") })
     }
@@ -1385,7 +1381,7 @@ private fun FeatureSettingsPage(app: AppViewModel) {
         ProxyDialog(
             current = proxy,
             onSave = {
-                prefs.put(DesktopPrefs.KEY_HTTP_PROXY, it)
+                prefs.put(PrefsKeys.KEY_HTTP_PROXY, it)
                 proxy = it
             },
             onDismiss = { showProxy = false },
@@ -1475,21 +1471,21 @@ private fun PlaySettingsPage(app: AppViewModel) {
         }
         if (kernelId == KernelIds.MPV) {
             // MPV 专属：硬解/特效字幕/字幕样式（MDK 页不展示，与设计稿一致）
-            PrefSwitchRow("硬解码", DesktopPrefs.KEY_MPV_HWDEC, true)
-            PrefSwitchRow("特效字幕", DesktopPrefs.KEY_MPV_FX_SUBTITLE, true)
-            ColorCycleRow("字幕颜色", DesktopPrefs.KEY_SUB_COLOR, Constants.SUB_COLORS, "#FFFFFF")
-            ColorCycleRow("字幕背景颜色", DesktopPrefs.KEY_SUB_BACK_COLOR, Constants.SUB_BACK_COLORS, "#000000")
-            PercentPrefRow("字幕背景色透明度", DesktopPrefs.KEY_SUB_BACK_ALPHA, 40, 0..100, 10)
-            PercentPrefRow("字幕大小", DesktopPrefs.KEY_SUB_SIZE, 100, 50..200, 10)
+            PrefSwitchRow("硬解码", PrefsKeys.KEY_MPV_HWDEC, true)
+            PrefSwitchRow("特效字幕", PrefsKeys.KEY_MPV_FX_SUBTITLE, true)
+            ColorCycleRow("字幕颜色", PrefsKeys.KEY_SUB_COLOR, Constants.SUB_COLORS, "#FFFFFF")
+            ColorCycleRow("字幕背景颜色", PrefsKeys.KEY_SUB_BACK_COLOR, Constants.SUB_BACK_COLORS, "#000000")
+            PercentPrefRow("字幕背景色透明度", PrefsKeys.KEY_SUB_BACK_ALPHA, 40, 0..100, 10)
+            PercentPrefRow("字幕大小", PrefsKeys.KEY_SUB_SIZE, 100, 50..200, 10)
         }
         VideoScaleRow()
-        PrefSwitchRow("显示上一集下一集按钮", DesktopPrefs.KEY_SHOW_PREV_NEXT, true)
-        PrefSwitchRow("进入后台暂停播放", DesktopPrefs.KEY_PAUSE_ON_BACKGROUND, false)
-        PrefSwitchRow("显示总时长", DesktopPrefs.KEY_SHOW_TOTAL_TIME, true)
-        PrefSwitchRow("显示松手取消调整进度", DesktopPrefs.KEY_SHOW_SEEK_CANCEL, true)
-        SpeedPrefRow("全局倍速设置", DesktopPrefs.KEY_GLOBAL_SPEED, Constants.PLAYBACK_SPEEDS, Constants.PLAYBACK_SPEEDS.indexOf(1.0f))
+        PrefSwitchRow("显示上一集下一集按钮", PrefsKeys.KEY_SHOW_PREV_NEXT, true)
+        PrefSwitchRow("进入后台暂停播放", PrefsKeys.KEY_PAUSE_ON_BACKGROUND, false)
+        PrefSwitchRow("显示总时长", PrefsKeys.KEY_SHOW_TOTAL_TIME, true)
+        PrefSwitchRow("显示松手取消调整进度", PrefsKeys.KEY_SHOW_SEEK_CANCEL, true)
+        SpeedPrefRow("全局倍速设置", PrefsKeys.KEY_GLOBAL_SPEED, Constants.PLAYBACK_SPEEDS, Constants.PLAYBACK_SPEEDS.indexOf(1.0f))
         SeekStepPrefRow()
-        SpeedPrefRow("长按倍速", DesktopPrefs.KEY_LONG_PRESS_SPEED, Constants.LONG_PRESS_SPEEDS, 0)
+        SpeedPrefRow("长按倍速", PrefsKeys.KEY_LONG_PRESS_SPEED, Constants.LONG_PRESS_SPEEDS, 0)
         Spacer(Modifier.height(16.dp))
     }
 }
@@ -1497,16 +1493,16 @@ private fun PlaySettingsPage(app: AppViewModel) {
 /** 画面比例行：点击循环切换 原始尺寸/裁剪铺满/拉伸画面（mpv 与 MDK 内核均生效） */
 @Composable
 private fun VideoScaleRow() {
-    val prefs = AppContainer.get().prefs
+    val prefs = LocalAppGraph.current.prefs
     val options = listOf("fit" to "原始尺寸", "crop" to "裁剪铺满", "stretch" to "拉伸画面")
-    var scale by remember { mutableStateOf(prefs.getString(DesktopPrefs.KEY_VIDEO_SCALE, "fit")) }
+    var scale by remember { mutableStateOf(prefs.getString(PrefsKeys.KEY_VIDEO_SCALE, "fit")) }
     val current = options.firstOrNull { it.first == scale } ?: options.first()
     SettingsRow(
         title = "画面：${current.second}",
         onClick = {
             val next = options[(options.indexOf(current) + 1).mod(options.size)]
             scale = next.first
-            prefs.put(DesktopPrefs.KEY_VIDEO_SCALE, next.first)
+            prefs.put(PrefsKeys.KEY_VIDEO_SCALE, next.first)
         },
     )
 }
@@ -1514,7 +1510,7 @@ private fun VideoScaleRow() {
 /** 颜色循环行：点击切换下一档颜色，行尾圆形色块预览当前颜色 */
 @Composable
 private fun ColorCycleRow(title: String, prefKey: String, colors: List<String>, defaultHex: String) {
-    val prefs = AppContainer.get().prefs
+    val prefs = LocalAppGraph.current.prefs
     var hex by remember { mutableStateOf(prefs.getString(prefKey, defaultHex).uppercase()) }
     SettingsRow(
         title = title,
@@ -1575,7 +1571,7 @@ private fun InterfaceLanguagePage(app: AppViewModel, open: (SettingsPage) -> Uni
         SettingsRow("Tab 设置", onClick = { open(SettingsPage.TABS) })
         PercentPrefRow(
             "字体缩放比例",
-            DesktopPrefs.KEY_FONT_SCALE,
+            PrefsKeys.KEY_FONT_SCALE,
             100,
             80..140,
             10,
@@ -1593,7 +1589,7 @@ private fun InterfaceLanguagePage(app: AppViewModel, open: (SettingsPage) -> Uni
 /** 主题页：模式（跟随系统/浅色/深色）+ 主题色 7 档，点击即时切换 */
 @Composable
 private fun ThemePage(app: AppViewModel) {
-    val prefs = AppContainer.get().prefs
+    val prefs = LocalAppGraph.current.prefs
     val modes = listOf(
         Triple(ThemeState.MODE_SYSTEM, Icons.Filled.DesktopWindows, "跟随系统"),
         Triple(ThemeState.MODE_LIGHT, Icons.Filled.LightMode, "浅色"),
@@ -1619,7 +1615,7 @@ private fun ThemePage(app: AppViewModel) {
                 },
                 onClick = {
                     ThemeState.update(mode)
-                    prefs.put(DesktopPrefs.KEY_THEME_MODE, mode)
+                    prefs.put(PrefsKeys.KEY_THEME_MODE, mode)
                 },
             ) {
                 if (ThemeState.mode == mode) {
@@ -1646,7 +1642,7 @@ private fun ThemePage(app: AppViewModel) {
                 },
                 onClick = {
                     ThemeState.updateColor(item.name)
-                    prefs.put(DesktopPrefs.KEY_THEME_COLOR, item.name)
+                    prefs.put(PrefsKeys.KEY_THEME_COLOR, item.name)
                 },
             ) {
                 if (ThemeState.colorName == item.name) {
@@ -1660,7 +1656,7 @@ private fun ThemePage(app: AppViewModel) {
 /** Tab 设置页：侧边栏 Tab 显隐开关（首页/设置固定显示） */
 @Composable
 private fun TabsSettingPage(app: AppViewModel) {
-    val prefs = AppContainer.get().prefs
+    val prefs = LocalAppGraph.current.prefs
     val sidebarTabs = listOf("首页", "搜索", "直播", "收藏", "历史", "设置")
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         sidebarTabs.forEach { label ->
@@ -1694,7 +1690,7 @@ private fun TabsSettingPage(app: AppViewModel) {
                     enabled = !fixed,
                     onCheckedChange = { checked ->
                         MainTabsState.setHidden(label, !checked)
-                        prefs.put(DesktopPrefs.KEY_HIDE_TABS, MainTabsState.hidden.joinToString(","))
+                        prefs.put(PrefsKeys.KEY_HIDE_TABS, MainTabsState.hidden.joinToString(","))
                     },
                 )
             }
@@ -1709,7 +1705,7 @@ private fun TabsSettingPage(app: AppViewModel) {
 /** 日志页（对照 Govin 移动端）：级别筛选（V/D/I/W/E 多选）+ 跟随滚动 + 复制/清空 */
 @Composable
 private fun LogPage() {
-    var logs by remember { mutableStateOf(AppLog.snapshotEntries()) }
+    var logs by remember { mutableStateOf(snapshotLogEntries()) }
     // 选中的日志级别（对照移动端 V/D/I/W/E 圆片，可多选过滤）
     var enabledLevels by remember { mutableStateOf(setOf('V', 'D', 'I', 'W', 'E')) }
     var follow by remember { mutableStateOf(true) }
@@ -1717,7 +1713,7 @@ private fun LogPage() {
     LaunchedEffect(Unit) {
         while (true) {
             delay(500)
-            logs = AppLog.snapshotEntries()
+            logs = snapshotLogEntries()
         }
     }
     val filtered = remember(logs, enabledLevels) { logs.filter { it.level in enabledLevels } }
@@ -1760,11 +1756,10 @@ private fun LogPage() {
             Spacer(Modifier.weight(1f))
             TextButton(onClick = {
                 val text = filtered.joinToString("\n") { it.text }
-                java.awt.Toolkit.getDefaultToolkit().systemClipboard
-                    .setContents(java.awt.datatransfer.StringSelection(text), null)
+                copyTextToClipboard(text)
             }) { Text("复制") }
             TextButton(onClick = {
-                AppLog.clear()
+                clearLogs()
                 logs = emptyList()
             }) { Text("清空") }
         }
@@ -1794,44 +1789,6 @@ private fun LogPage() {
                     )
                 }
             }
-        }
-    }
-}
-
-/** 自定义存储路径页：查看/更改/恢复默认（重启生效） */
-@Composable
-private fun StoragePathPage(app: AppViewModel) {
-    val container = AppContainer.get()
-    val defaultDir = java.io.File(System.getProperty("user.home"), ".shiping-desktop")
-    var currentPath by remember { mutableStateOf(container.dataDir.absolutePath) }
-
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("当前数据目录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Text(
-            currentPath,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                runCatching {
-                    val chooser = javax.swing.JFileChooser(currentPath).apply {
-                        fileSelectionMode = javax.swing.JFileChooser.DIRECTORIES_ONLY
-                        dialogTitle = "选择数据目录"
-                    }
-                    if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
-                        val path = chooser.selectedFile.absolutePath
-                        AppContainer.writeDataDirOverride(defaultDir, path)
-                        currentPath = path
-                        app.showMessage("已保存自定义数据目录，重启应用后生效")
-                    }
-                }.onFailure { app.showMessage("选择目录失败：${it.message}") }
-            }) { Text("更改目录…") }
-            OutlinedButton(onClick = {
-                AppContainer.writeDataDirOverride(defaultDir, "")
-                currentPath = defaultDir.absolutePath
-                app.showMessage("已恢复默认数据目录，重启应用后生效")
-            }) { Text("恢复默认") }
         }
     }
 }

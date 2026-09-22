@@ -31,7 +31,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.shiping.desktop.data.model.FavoriteEntity
 import com.shiping.desktop.data.model.PlayHistoryEntity
-import com.shiping.desktop.di.AppContainer
 import com.shiping.desktop.ui.common.ConfirmDialog
 import com.shiping.desktop.ui.common.EmptyView
 import com.shiping.desktop.ui.common.VideoCard
@@ -40,9 +39,9 @@ import kotlinx.coroutines.launch
 /** 播放历史页：卡片网格 + 单删/清空，点击继续播放 */
 @Composable
 fun HistoryScreen(app: AppViewModel) {
-    val container = AppContainer.get()
+    val graph = app.graph
     val scope = rememberCoroutineScope()
-    val history by container.playHistoryRepository.history.collectAsState()
+    val history by graph.playHistoryRepository.history.collectAsState()
     var pendingClear by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<PlayHistoryEntity?>(null) }
 
@@ -90,12 +89,12 @@ fun HistoryScreen(app: AppViewModel) {
     }
     if (pendingClear) {
         ConfirmDialog(title = "清空播放历史", message = "将删除全部播放记录，确定吗？", onConfirm = {
-            scope.launch { container.playHistoryRepository.clear() }
+            scope.launch { graph.playHistoryRepository.clear() }
         }, onDismiss = { pendingClear = false })
     }
     pendingDelete?.let { record ->
         ConfirmDialog(title = "删除记录", message = "删除「${record.title}」的播放记录？", onConfirm = {
-            scope.launch { container.playHistoryRepository.delete(record.vodId, record.sourceUrl) }
+            scope.launch { graph.playHistoryRepository.delete(record.vodId, record.sourceUrl) }
         }, onDismiss = { pendingDelete = null })
     }
 }
@@ -111,9 +110,9 @@ private fun formatHistoryRemark(record: PlayHistoryEntity): String =
 /** 收藏页：卡片网格 + 取消收藏 */
 @Composable
 fun FavoriteScreen(app: AppViewModel) {
-    val container = AppContainer.get()
+    val graph = app.graph
     val scope = rememberCoroutineScope()
-    val favorites by container.favoriteRepository.favorites.collectAsState()
+    val favorites by graph.favoriteRepository.favorites.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -136,7 +135,7 @@ fun FavoriteScreen(app: AppViewModel) {
                     FavoriteCard(favorite = favorite, onOpen = {
                         app.push(Screen.Detail(favorite.vodId, favorite.sourceUrl, favorite.title, favorite.vodPic))
                     }, onRemove = {
-                        scope.launch { container.favoriteRepository.remove(favorite.vodId, favorite.sourceUrl) }
+                        scope.launch { graph.favoriteRepository.remove(favorite.vodId, favorite.sourceUrl) }
                     })
                 }
             }

@@ -15,6 +15,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.shiping.desktop.di.AppContainer
 import com.shiping.desktop.ui.AppViewModel
 import com.shiping.desktop.ui.DesktopDirectPlaybackHost
+import com.shiping.desktop.ui.LocalAppGraph
 import com.shiping.desktop.ui.MainTabsState
 import com.shiping.desktop.ui.MainWindow
 import com.shiping.desktop.ui.VmLog
@@ -63,7 +64,9 @@ fun main() = application {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val host = remember { DesktopDirectPlaybackHost() }
                     val appViewModel = remember { AppViewModel(container, host).also { host.bind(it) } }
-                    MainWindow(appViewModel, windowState)
+                    CompositionLocalProvider(LocalAppGraph provides container) {
+                        MainWindow(appViewModel, windowState)
+                    }
                 }
             }
         }
