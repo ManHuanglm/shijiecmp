@@ -32,4 +32,6 @@ dependencies {
     implementation("androidx.annotation:annotation:1.6.0")
     // FtyGuardEngine：JVM 内模拟 ARM64 执行加固壳 so（饭太硬 ftyguard）
     implementation("com.github.zhkl0228.unidbg:unidbg-android:0.9.8")
+    // 单元测试：kotlin.test（JUnit4 runner）
+    testImplementation(kotlin("test"))
 }

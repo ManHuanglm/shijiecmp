@@ -217,6 +217,18 @@ object TvBoxConfigParser {
      */
     private fun parseJsonBody(raw: String): JsonElement? {
         val trimmed = raw.trim().removePrefix("\uFEFF")
+        // 明文整体 JSON（首尾锚齐全）优先整体解析：数组式配置 [{...},...] 若走下方
+        // 对象锚扫描，会被数组内最后一个对象短路成单站点对象而丢失其余条目
+        if (trimmed.length >= 2) {
+            val head = trimmed.first()
+            val tail = trimmed.last()
+            if ((head == '{' && tail == '}') || (head == '[' && tail == ']')) {
+                val whole = runCatching {
+                    JsonParser.parseString(stripComments(trimmed))
+                }.getOrNull()
+                if (whole != null) return whole
+            }
+        }
         for (anchor in sequenceOf('{' to '}', '[' to ']')) {
             val end = trimmed.lastIndexOf(anchor.second)
             if (end < 0) continue

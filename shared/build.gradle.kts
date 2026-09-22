@@ -57,6 +57,10 @@ kotlin {
             implementation("net.java.dev.jna:jna:5.13.0")
             implementation("uk.co.caprica:vlcj:4.7.3")
         }
+        jvmTest.dependencies {
+            // 单元测试：kotlin.test（JUnit4 runner）
+            implementation(kotlin("test"))
+        }
     }
 }
 
