@@ -2,6 +2,7 @@ package com.shiping.desktop.player
 
 import com.shiping.desktop.di.AppContainer
 import com.shiping.desktop.data.prefs.DesktopPrefs
+import com.shiping.desktop.ui.InPageOverlayHost
 import com.shiping.desktop.util.AppLog
 import com.shiping.desktop.util.Constants
 import java.awt.AWTEvent
@@ -104,7 +105,7 @@ class PlayerOverlay(
     video: Component?,
     private val controller: PlayerController,
     var windowActions: PlayerWindowActions? = null,
-) : JLayeredPane() {
+) : JLayeredPane(), InPageOverlayHost {
 
     private val prefs get() = AppContainer.get().prefs
 
@@ -266,7 +267,7 @@ class PlayerOverlay(
      * setVisible(false) 只隐藏原生窗口不销毁 HWND，mpv 播放不受影响。
      * MDK 绑定 HWND 后 AWT setVisible 失效，另经内核 setSurfaceVisible 走原生 ShowWindow。
      */
-    fun setBackground(background: Boolean) {
+    override fun setBackground(background: Boolean) {
         isBackground = background
         if (background) {
             hideTimer.stop()

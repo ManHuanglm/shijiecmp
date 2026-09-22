@@ -14,11 +14,14 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.shiping.desktop.di.AppContainer
 import com.shiping.desktop.ui.AppViewModel
+import com.shiping.desktop.ui.DesktopDirectPlaybackHost
 import com.shiping.desktop.ui.MainTabsState
 import com.shiping.desktop.ui.MainWindow
+import com.shiping.desktop.ui.VmLog
 import com.shiping.desktop.ui.theme.ShipingTheme
 import com.shiping.desktop.ui.theme.ThemeState
 import com.shiping.desktop.ui.theme.UiScale
+import com.shiping.desktop.util.AppLog
 import java.awt.Dimension
 
 // Swing 文字必须灰度抗锯齿：LCD 子像素 AA 在半透明分层窗口（播放器控制层 JWindow）上会渲染成黑色
@@ -35,6 +38,14 @@ fun main() = application {
     ThemeState.init(container.prefs)
     UiScale.init(container.prefs)
     MainTabsState.init(container.prefs)
+    // cmpMain 统一日志出口装配：UI 层 VmLog → 桌面 AppLog
+    VmLog.sink = { level, tag, message ->
+        when (level) {
+            'w' -> AppLog.w(tag, message)
+            'e' -> AppLog.e(tag, message)
+            else -> AppLog.i(tag, message)
+        }
+    }
     val windowState = rememberWindowState(width = 1280.dp, height = 800.dp)
 
     Window(
@@ -50,7 +61,8 @@ fun main() = application {
                 LocalDensity provides Density(density.density, UiScale.fontScale),
             ) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    val appViewModel = remember { AppViewModel(container) }
+                    val host = remember { DesktopDirectPlaybackHost() }
+                    val appViewModel = remember { AppViewModel(container, host).also { host.bind(it) } }
                     MainWindow(appViewModel, windowState)
                 }
             }

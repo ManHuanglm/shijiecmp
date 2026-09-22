@@ -1,4 +1,4 @@
-﻿package com.shiping.desktop.ui
+package com.shiping.desktop.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -76,8 +76,9 @@ import com.shiping.desktop.player.PlayerWindowActions
 import com.shiping.desktop.ui.common.DropdownSelector
 import com.shiping.desktop.ui.common.EmptyView
 import com.shiping.desktop.ui.common.ErrorView
-import com.shiping.desktop.ui.common.ImageLoader
+import com.shiping.desktop.ui.common.ImageCache
 import com.shiping.desktop.ui.common.LoadingView
+import com.shiping.desktop.ui.common.fetchImageBitmap
 import com.shiping.desktop.ui.theme.FixedPalette
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -785,9 +786,10 @@ private fun TvChannelCard(
 /** 台标：加载成功显示图片；加载中/失败/无地址显示占位块 */
 @Composable
 private fun TvChannelLogo(url: String, modifier: Modifier = Modifier) {
-    val bitmap by produceState<ImageBitmap?>(initialValue = ImageLoader.cached(url), key1 = url) {
+    val bitmap by produceState<ImageBitmap?>(initialValue = ImageCache.cached(url), key1 = url) {
         if (url.isBlank()) return@produceState
-        value = ImageLoader.load(url)
+        ImageCache.cached(url)?.let { value = it }
+        fetchImageBitmap(url)?.let { value = it.also { bmp -> ImageCache.put(url, bmp) } }
     }
     val scheme = MaterialTheme.colorScheme
     Box(modifier = modifier, contentAlignment = Alignment.Center) {

@@ -1,4 +1,4 @@
-﻿package com.shiping.desktop.ui
+package com.shiping.desktop.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -108,7 +108,6 @@ import com.shiping.desktop.data.model.TvSourceEntity
 import com.shiping.desktop.data.prefs.DesktopPrefs
 import com.shiping.shared.spider.SpiderProxyServer
 import com.shiping.desktop.di.AppContainer
-import com.shiping.desktop.player.PlayerKernel
 import com.shiping.desktop.player.formatSpeed
 import com.shiping.desktop.ui.common.DropdownSelector
 import com.shiping.desktop.ui.common.TextInputRow
@@ -483,7 +482,7 @@ private fun CleanDataDialog(app: AppViewModel, onDismiss: () -> Unit) {
                 )
                 Spacer(Modifier.height(8.dp))
                 TextButton(onClick = {
-                    com.shiping.desktop.ui.common.ImageLoader.clearCache()
+                    com.shiping.desktop.ui.common.clearImageCache()
                     app.showMessage("图片缓存已清空")
                     onDismiss()
                 }) { Text("清空图片缓存") }
@@ -1438,11 +1437,13 @@ private fun ProxyDialog(current: String, onSave: (String) -> Unit, onDismiss: ()
 /** 播放设置：MPV/MDK 内核横幅切换 + MPV 分组（硬解/字幕）+ 播放行为 + 倍速 */
 @Composable
 private fun PlaySettingsPage(app: AppViewModel) {
-    val kernel by app.playerKernel.collectAsState()
+    val kernelId by app.kernelId.collectAsState()
+    // 内核循环顺序（与播放器内设置一致，media3 为 Android 专属不进桌面循环）
+    val kernelOrder = listOf(KernelIds.MPV, KernelIds.VLC, KernelIds.MDK)
+    val nextKernelId = kernelOrder[(kernelOrder.indexOf(kernelId).coerceAtLeast(0) + 1) % kernelOrder.size]
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         // 内核胶囊：只显示当前内核，点击循环切换 MPV/VLC/MDK（与播放器内设置一致，下次打开播放器生效）
-        val nextKernel = PlayerKernel.entries[(kernel.ordinal + 1) % PlayerKernel.entries.size]
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -1450,7 +1451,7 @@ private fun PlaySettingsPage(app: AppViewModel) {
                 .padding(horizontal = 16.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(MaterialTheme.colorScheme.primaryContainer)
-                .clickable { app.setPlayerKernel(nextKernel) }
+                .clickable { app.switchKernel(nextKernelId) }
                 .padding(horizontal = 12.dp, vertical = 12.dp),
         ) {
             Icon(
@@ -1460,7 +1461,7 @@ private fun PlaySettingsPage(app: AppViewModel) {
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = kernel.displayName.uppercase(),
+                text = kernelId.uppercase(),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -1472,7 +1473,7 @@ private fun PlaySettingsPage(app: AppViewModel) {
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
         }
-        if (kernel == PlayerKernel.MPV) {
+        if (kernelId == KernelIds.MPV) {
             // MPV 专属：硬解/特效字幕/字幕样式（MDK 页不展示，与设计稿一致）
             PrefSwitchRow("硬解码", DesktopPrefs.KEY_MPV_HWDEC, true)
             PrefSwitchRow("特效字幕", DesktopPrefs.KEY_MPV_FX_SUBTITLE, true)

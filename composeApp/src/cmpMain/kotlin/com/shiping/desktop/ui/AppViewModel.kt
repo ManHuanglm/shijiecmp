@@ -4,16 +4,13 @@ import com.shiping.desktop.data.model.PlayEpisode
 import com.shiping.desktop.data.model.PlaySource
 import com.shiping.desktop.data.model.Vod
 import com.shiping.desktop.data.spider.BiliQualityOption
-import com.shiping.shared.spider.SpiderProxyServer
-import com.shiping.shared.graph.AppGraph
+import com.shiping.desktop.data.spider.BiliPlayUrl
 import com.shiping.desktop.player.PlaybackUrlResolver
-import com.shiping.desktop.player.PlayerControllerFactory
-import com.shiping.desktop.player.PlayerFrame
-import com.shiping.desktop.player.PlayerKernel
-import com.shiping.desktop.player.PlayerOverlay
 import com.shiping.desktop.player.isDirectStreamUrl
-import com.shiping.desktop.util.AppLog
 import com.shiping.desktop.util.Constants
+import com.shiping.shared.graph.AppGraph
+import com.shiping.shared.prefs.PrefsKeys
+import com.shiping.shared.spider.SpiderProxyServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,8 +23,13 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * 应用级状态：导航栈、播放会话、全局提示、局域网推送接收。
  * graph 公开给屏幕层：屏内局部 ViewModel 与直接仓库访问经它取依赖。
+ * 播放承载经 [DirectPlaybackHost]（桌面=PlayerFrame 弹窗，Android=全屏页），
+ * 页内控制层经 [InPageOverlayHost] 注册（桌面=PlayerOverlay，Android=Compose 控制层）。
  */
-class AppViewModel(val graph: AppGraph) {
+class AppViewModel(
+    val graph: AppGraph,
+    private val directHost: DirectPlaybackHost,
+) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -49,31 +51,18 @@ class AppViewModel(val graph: AppGraph) {
         collectPushEvents()
     }
 
-    // region 推送播放窗口（独立 Swing JFrame；详情/直播播放由页内内嵌承载）
+    // region 播放内核与独立直链播放宿主
 
-    /** 当前播放内核（设置页可切换，持久化；对已打开的播放窗口不生效） */
-    private val _playerKernel = MutableStateFlow(PlayerControllerFactory.fromPrefs(graph.prefs))
-    val playerKernel: StateFlow<PlayerKernel> = _playerKernel.asStateFlow()
+    /** 当前播放内核 ID（字符串跨端通用；设置页可切换，持久化；对已打开的播放窗口不生效） */
+    private val _kernelId = MutableStateFlow(graph.prefs.getString(PrefsKeys.KEY_PLAYER_KERNEL, KernelIds.DEFAULT))
+    val kernelId: StateFlow<String> = _kernelId.asStateFlow()
 
     /** 切换播放内核（下次打开播放器生效） */
-    fun setPlayerKernel(kernel: PlayerKernel) {
-        if (_playerKernel.value == kernel) return
-        _playerKernel.value = kernel
-        graph.prefs.put(PlayerControllerFactory.KEY_PLAYER_KERNEL, kernel.id)
-        showMessage("播放内核已切换为 ${kernel.displayName}，下次打开播放器生效")
-    }
-
-    /** 推送播放窗口（局域网推送直链；页内播放不经过它） */
-    private var playerFrame: PlayerFrame? = null
-
-    private val playerCallbacks = object : PlayerFrame.Callbacks {
-        override fun onClose() = closePlayer()
-        override fun onSwitchQuality(session: PlaybackSession, qn: Int, resumeMs: Long) =
-            switchBiliQuality(session, qn, resumeMs)
-
-        // 推送会话无选集/清晰度上下文，对应按钮不展示，回调保底空实现
-        override fun onPlayEpisode(sourceIndex: Int, episodeIndex: Int) = Unit
-        override fun onDownloadEpisode(episodeIndex: Int) = Unit
+    fun switchKernel(id: String) {
+        if (_kernelId.value == id) return
+        _kernelId.value = id
+        graph.prefs.put(PrefsKeys.KEY_PLAYER_KERNEL, id)
+        showMessage("播放内核已切换为 $id，下次打开播放器生效")
     }
 
     /** 会话序号（每次起播递增，驱动同集重播流转） */
@@ -87,15 +76,15 @@ class AppViewModel(val graph: AppGraph) {
 
     /** 当前页内播放器控制层（详情/直播页组合时注册，销毁时注销；切页命令式隐藏用） */
     @Volatile
-    private var inPageOverlay: PlayerOverlay? = null
+    private var inPageOverlay: InPageOverlayHost? = null
 
     /** 注册页内播放器控制层（详情/直播播放态组合时调用） */
-    fun registerInPageOverlay(overlay: PlayerOverlay) {
+    fun registerInPageOverlay(overlay: InPageOverlayHost) {
         inPageOverlay = overlay
     }
 
     /** 注销页内播放器控制层（播放态销毁时调用，防误隐藏新页 overlay） */
-    fun unregisterInPageOverlay(overlay: PlayerOverlay) {
+    fun unregisterInPageOverlay(overlay: InPageOverlayHost) {
         if (inPageOverlay === overlay) inPageOverlay = null
     }
 
@@ -137,7 +126,7 @@ class AppViewModel(val graph: AppGraph) {
             .filter { it.className.contains("shiping") }
             .take(3)
             .joinToString(" <- ") { "${it.className.substringAfterLast('.')}#${it.methodName}:${it.lineNumber}" }
-        AppLog.i("Player", "playEpisode: ${episode.name} by $caller")
+        VmLog.i("Player", "playEpisode: ${episode.name} by $caller")
         scope.launch {
             _playerLoading.value = true
             runCatching {
@@ -169,7 +158,7 @@ class AppViewModel(val graph: AppGraph) {
                     )
                 }
             }.onFailure {
-                AppLog.e("Player", "起播失败: ${it.message}")
+                VmLog.e("Player", "起播失败: ${it.message}")
                 showMessage("起播失败：${it.message ?: "未知错误"}")
             }
             _playerLoading.value = false
@@ -177,8 +166,8 @@ class AppViewModel(val graph: AppGraph) {
     }
 
     /**
-     * 直链直接播放（手机推送）：独立 PlayerFrame 承载（无详情上下文，不进页内播放）。
-     * EDT 上判断存活窗口：在播窗口切流，死窗口/无窗口则按当前内核新建（命令式，规避会话去重漏弹窗）。
+     * 直链直接播放（手机推送）：经 [DirectPlaybackHost] 承载（无详情上下文，不进页内播放）。
+     * 宿主实现负责窗口复用/新建（命令式，规避会话去重漏弹窗）。
      */
     fun playDirect(title: String, url: String) {
         val session = PlaybackSession(
@@ -190,38 +179,15 @@ class AppViewModel(val graph: AppGraph) {
             seq = nextSessionSeq(),
         )
         _playerSession.value = session
-        javax.swing.SwingUtilities.invokeLater {
-            try {
-                val existing = playerFrame
-                if (existing != null && existing.isShowing) {
-                    existing.playSession(session)
-                    return@invokeLater
-                }
-                // 残留窗口（已关未清）先释放，再新建
-                existing?.closeFrame()
-                AppLog.i("Player", "创建推送播放窗口 kernel=${_playerKernel.value.displayName}")
-                val frame = PlayerFrame(
-                    PlayerControllerFactory.create(_playerKernel.value, graph.prefs),
-                    session,
-                    playerCallbacks,
-                )
-                playerFrame = frame
-                frame.isVisible = true
-            } catch (e: Throwable) {
-                AppLog.e("Player", "推送播放窗口处理失败: ${e.javaClass.simpleName}: ${e.message}")
-            }
-        }
+        directHost.openOrCreate(session, _kernelId.value, graph.prefs)
     }
 
-    /** 关闭播放器：复位页内全屏与会话，EDT 上关推送窗口（窗口自身回调 onClose 时幂等） */
+    /** 关闭播放器：复位页内全屏与会话，并关闭独立播放宿主（窗口自身回调 onClose 时幂等） */
     fun closePlayer() {
         _detailFullscreen.value = false
         _tvFullscreen.value = false
         _playerSession.value = null
-        javax.swing.SwingUtilities.invokeLater {
-            playerFrame?.closeFrame()
-            playerFrame = null
-        }
+        directHost.close()
     }
 
     // region 页内播放全屏
@@ -338,7 +304,7 @@ class AppViewModel(val graph: AppGraph) {
     private fun collectPushEvents() {
         scope.launch {
             SpiderProxyServer.pushEvents.collect { push ->
-                AppLog.i("Push", "收到推送: ${push.title} ${push.url}")
+                VmLog.i("Push", "收到推送: ${push.title} ${push.url}")
                 if (isDirectStreamUrl(push.url)) {
                     playDirect(push.title.ifBlank { "局域网推送" }, push.url)
                 } else {
