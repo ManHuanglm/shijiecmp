@@ -14,6 +14,8 @@ import com.shiping.desktop.data.repository.TvRepository
 import com.shiping.desktop.data.repository.VodRepository
 import com.shiping.desktop.data.spider.DesktopSpiderRuntime
 import com.shiping.desktop.util.AppLog
+import com.shiping.shared.graph.AppGraph
+import com.shiping.shared.graph.TvBoxImporter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,41 +24,64 @@ import java.io.File
 
 /**
  * 桌面版依赖容器：初始化数据目录、stub 上下文、爬虫运行时与全部仓库。
+ * 实现 shared AppGraph——统一 UI（cmpMain）经接口消费，不感知桌面存储实现。
  */
-class AppContainer private constructor() {
+class AppContainer private constructor() : AppGraph {
 
     /** 应用级协程作用域（仓库预热/后台任务） */
-    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    override val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     lateinit var dataDir: File
         private set
 
-    lateinit var prefs: DesktopPrefs
+    /** 偏好存储（DesktopPrefs 实现 shared KeyValueStore，协变挂接） */
+    override lateinit var prefs: DesktopPrefs
         private set
+
+    override val dataDirPath: String
+        get() = dataDir.absolutePath
 
     lateinit var db: DesktopDb
         private set
 
-    lateinit var apiSourceRepository: ApiSourceRepository
+    override lateinit var apiSourceRepository: ApiSourceRepository
         private set
 
-    lateinit var parseSourceRepository: ParseSourceRepository
+    override lateinit var parseSourceRepository: ParseSourceRepository
         private set
 
-    lateinit var tvRepository: TvRepository
+    override lateinit var tvRepository: TvRepository
         private set
 
-    lateinit var playHistoryRepository: PlayHistoryRepository
+    override lateinit var playHistoryRepository: PlayHistoryRepository
         private set
 
-    lateinit var favoriteRepository: FavoriteRepository
+    override lateinit var favoriteRepository: FavoriteRepository
         private set
 
-    lateinit var vodRepository: VodRepository
+    override lateinit var vodRepository: VodRepository
         private set
 
     lateinit var tvBoxImporter: TvBoxConfigImporter
         private set
+
+    /** TVBox 导入服务适配：结果 Summary 转人类可读消息（AppGraph 契约） */
+    override val tvBoxImporterService: TvBoxImporter = object : TvBoxImporter {
+        override suspend fun import(url: String, label: String): String =
+            tvBoxImporter.import(url, label).messageText()
+    }
+
+    /** 启动预热：默认源插入 + 各仓库刷新（AppGraph 契约，启动时后台执行一次） */
+    override suspend fun warmUp() {
+        apiSourceRepository.initDefaultSource()
+        tvRepository.initDefaultSource()
+        apiSourceRepository.refresh()
+        parseSourceRepository.refresh()
+        tvRepository.refresh()
+        playHistoryRepository.refresh()
+        favoriteRepository.refresh()
+        AppLog.i("AppContainer", "数据加载完成：API 源 ${apiSourceRepository.sources.value.size} 个")
+    }
 
     /**
      * 桌面 stub 上下文：数据目录注入给爬虫 jar（Init/Prefers/Path 使用）。
@@ -98,21 +123,10 @@ class AppContainer private constructor() {
         // 爬虫运行时：注入 stub 上下文 + 数据目录，启动本地代理（9978 起）
         DesktopSpiderRuntime.init(stubContext, dataDir)
 
-        // 数据预热：源列表加载 + 首次启动默认源
+        // 数据预热：默认源插入 + 各仓库刷新（AppGraph.warmUp）
         appScope.launch {
-            runCatching {
-                apiSourceRepository.initDefaultSource()
-                tvRepository.initDefaultSource()
-                apiSourceRepository.refresh()
-                parseSourceRepository.refresh()
-                tvRepository.refresh()
-                playHistoryRepository.refresh()
-                favoriteRepository.refresh()
-                AppLog.i(
-                    "AppContainer",
-                    "数据加载完成：API 源 ${apiSourceRepository.sources.value.size} 个",
-                )
-            }.onFailure { AppLog.e("AppContainer", "数据初始化失败: ${it.message}") }
+            runCatching { warmUp() }
+                .onFailure { AppLog.e("AppContainer", "数据初始化失败: ${it.message}") }
         }
     }
 

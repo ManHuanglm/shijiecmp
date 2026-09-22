@@ -46,110 +46,41 @@ class DesktopPrefs(dataDir: File) : KeyValueStore {
 
     companion object {
 
-        /** 当前选中的 API 源 ID */
-        const val KEY_CURRENT_API_ID = "currentApiId"
-
-        /** 当前选中的直播源 ID */
-        const val KEY_CURRENT_TV_ID = "currentTvId"
-
-        /** 直播收藏频道（favoriteKey 逗号分隔） */
-        const val KEY_TV_FAVORITES = "tvFavorites"
-
-        /** 默认解析源地址 */
-        const val KEY_DEFAULT_PARSER_URL = "defaultParserUrl"
-
-        /** 播放音量（0-100） */
-        const val KEY_PLAYER_VOLUME = "playerVolume"
-
-        /** 播放倍速 */
-        const val KEY_PLAYER_SPEED = "playerSpeed"
-
-        // region 设置页（对齐 app 设置结构）
-
-        /** 自定义数据目录（持久化于默认目录的 prefs，重启生效） */
-        const val KEY_DATA_DIR = "dataDir"
-
-        /** 过滤列表中名称/备注含「切片」的条目 */
-        const val KEY_FILTER_SLICE_AD = "filterSliceAd"
-
-        /** 播放记录开关（关闭后不保存播放进度） */
-        const val KEY_PLAY_RECORD_ENABLED = "playRecordEnabled"
-
-        /** 触感提示（桌面端无振动，仅保存设置） */
-        const val KEY_TOUCH_HINT = "touchHint"
-
-        /** HTTP 代理（host:port，对爬虫网络请求生效，重启生效） */
-        const val KEY_HTTP_PROXY = "httpProxy"
-
-        /** mpv 硬解码 */
-        const val KEY_MPV_HWDEC = "mpvHwdec"
-
-        /** mpv 特效字幕（保留 ASS 特效） */
-        const val KEY_MPV_FX_SUBTITLE = "mpvFxSubtitle"
-
-        /** 字幕颜色（#RRGGBB） */
-        const val KEY_SUB_COLOR = "subColor"
-
-        /** 字幕背景颜色（#RRGGBB） */
-        const val KEY_SUB_BACK_COLOR = "subBackColor"
-
-        /** 字幕背景色透明度（0-100） */
-        const val KEY_SUB_BACK_ALPHA = "subBackAlpha"
-
-        /** 字幕大小（百分比，50-200） */
-        const val KEY_SUB_SIZE = "subSize"
-
-        /** mpv 画面比例：fit=原比例 crop=裁剪铺满 stretch=拉伸 */
-        const val KEY_VIDEO_SCALE = "videoScale"
-
-        /** 显示上一集/下一集按钮 */
-        const val KEY_SHOW_PREV_NEXT = "showPrevNext"
-
-        /** 播放窗口最小化时暂停播放 */
-        const val KEY_PAUSE_ON_BACKGROUND = "pauseOnBackground"
-
-        /** 控制条显示总时长 */
-        const val KEY_SHOW_TOTAL_TIME = "showTotalTime"
-
-        /** 松手取消调整进度（移动端手势，仅保存设置） */
-        const val KEY_SHOW_SEEK_CANCEL = "showSeekCancel"
-
-        /** 全局倍速（浮点，起播默认速率） */
-        const val KEY_GLOBAL_SPEED = "globalSpeed"
-
-        /** 快进快退步长秒（0 不展示按钮） */
-        const val KEY_SEEK_STEP = "seekStep"
-
-        /** 长按倍速（移动端手势，仅保存设置） */
-        const val KEY_LONG_PRESS_SPEED = "longPressSpeed"
-
-        /** 多线程播放：分片大小 kb */
-        const val KEY_M3U8_CHUNK_KB = "m3u8ChunkKb"
-
-        /** 多线程播放：线程数 */
-        const val KEY_M3U8_THREADS = "m3u8Threads"
-
-        /** 多线程播放：已知晓风险并确认使用 */
-        const val KEY_M3U8_RISK_ACK = "m3u8RiskAck"
-
-        /** 主题模式：0=跟随系统 1=浅色 2=深色 */
-        const val KEY_THEME_MODE = "theme_mode"
-
-        /** 主题色名称（蓝/黄/青/红/绿/紫/橙） */
-        const val KEY_THEME_COLOR = "theme_color"
-
-        /** 界面语言（暂仅简体中文） */
-        const val KEY_LANGUAGE = "language"
-
-        /** 隐藏的侧边栏 Tab（逗号分隔名称，首页/设置不可隐藏） */
-        const val KEY_HIDE_TABS = "hideTabs"
-
-        /** 字体缩放比例（百分比，80-140） */
-        const val KEY_FONT_SCALE = "fontScale"
-
-        /** 字体（暂仅系统默认） */
-        const val KEY_FONT_NAME = "fontName"
-
-        // endregion
+        // 键常量统一收口于 com.shiping.shared.prefs.PrefsKeys（jvmCommon）：
+        // 这里保留同名引用以兼容既有 UI 代码（cmpMain 统一后改用 PrefsKeys）
+        val KEY_CURRENT_API_ID = com.shiping.shared.prefs.PrefsKeys.KEY_CURRENT_API_ID
+        val KEY_CURRENT_TV_ID = com.shiping.shared.prefs.PrefsKeys.KEY_CURRENT_TV_ID
+        val KEY_TV_FAVORITES = com.shiping.shared.prefs.PrefsKeys.KEY_TV_FAVORITES
+        val KEY_DEFAULT_PARSER_URL = com.shiping.shared.prefs.PrefsKeys.KEY_DEFAULT_PARSER_URL
+        val KEY_PLAYER_VOLUME = com.shiping.shared.prefs.PrefsKeys.KEY_PLAYER_VOLUME
+        val KEY_PLAYER_SPEED = com.shiping.shared.prefs.PrefsKeys.KEY_PLAYER_SPEED
+        val KEY_DATA_DIR = com.shiping.shared.prefs.PrefsKeys.KEY_DATA_DIR
+        val KEY_FILTER_SLICE_AD = com.shiping.shared.prefs.PrefsKeys.KEY_FILTER_SLICE_AD
+        val KEY_PLAY_RECORD_ENABLED = com.shiping.shared.prefs.PrefsKeys.KEY_PLAY_RECORD_ENABLED
+        val KEY_TOUCH_HINT = com.shiping.shared.prefs.PrefsKeys.KEY_TOUCH_HINT
+        val KEY_HTTP_PROXY = com.shiping.shared.prefs.PrefsKeys.KEY_HTTP_PROXY
+        val KEY_MPV_HWDEC = com.shiping.shared.prefs.PrefsKeys.KEY_MPV_HWDEC
+        val KEY_MPV_FX_SUBTITLE = com.shiping.shared.prefs.PrefsKeys.KEY_MPV_FX_SUBTITLE
+        val KEY_SUB_COLOR = com.shiping.shared.prefs.PrefsKeys.KEY_SUB_COLOR
+        val KEY_SUB_BACK_COLOR = com.shiping.shared.prefs.PrefsKeys.KEY_SUB_BACK_COLOR
+        val KEY_SUB_BACK_ALPHA = com.shiping.shared.prefs.PrefsKeys.KEY_SUB_BACK_ALPHA
+        val KEY_SUB_SIZE = com.shiping.shared.prefs.PrefsKeys.KEY_SUB_SIZE
+        val KEY_VIDEO_SCALE = com.shiping.shared.prefs.PrefsKeys.KEY_VIDEO_SCALE
+        val KEY_SHOW_PREV_NEXT = com.shiping.shared.prefs.PrefsKeys.KEY_SHOW_PREV_NEXT
+        val KEY_PAUSE_ON_BACKGROUND = com.shiping.shared.prefs.PrefsKeys.KEY_PAUSE_ON_BACKGROUND
+        val KEY_SHOW_TOTAL_TIME = com.shiping.shared.prefs.PrefsKeys.KEY_SHOW_TOTAL_TIME
+        val KEY_SHOW_SEEK_CANCEL = com.shiping.shared.prefs.PrefsKeys.KEY_SHOW_SEEK_CANCEL
+        val KEY_GLOBAL_SPEED = com.shiping.shared.prefs.PrefsKeys.KEY_GLOBAL_SPEED
+        val KEY_SEEK_STEP = com.shiping.shared.prefs.PrefsKeys.KEY_SEEK_STEP
+        val KEY_LONG_PRESS_SPEED = com.shiping.shared.prefs.PrefsKeys.KEY_LONG_PRESS_SPEED
+        val KEY_M3U8_CHUNK_KB = com.shiping.shared.prefs.PrefsKeys.KEY_M3U8_CHUNK_KB
+        val KEY_M3U8_THREADS = com.shiping.shared.prefs.PrefsKeys.KEY_M3U8_THREADS
+        val KEY_M3U8_RISK_ACK = com.shiping.shared.prefs.PrefsKeys.KEY_M3U8_RISK_ACK
+        val KEY_THEME_MODE = com.shiping.shared.prefs.PrefsKeys.KEY_THEME_MODE
+        val KEY_THEME_COLOR = com.shiping.shared.prefs.PrefsKeys.KEY_THEME_COLOR
+        val KEY_LANGUAGE = com.shiping.shared.prefs.PrefsKeys.KEY_LANGUAGE
+        val KEY_HIDE_TABS = com.shiping.shared.prefs.PrefsKeys.KEY_HIDE_TABS
+        val KEY_FONT_SCALE = com.shiping.shared.prefs.PrefsKeys.KEY_FONT_SCALE
+        val KEY_FONT_NAME = com.shiping.shared.prefs.PrefsKeys.KEY_FONT_NAME
     }
 }
