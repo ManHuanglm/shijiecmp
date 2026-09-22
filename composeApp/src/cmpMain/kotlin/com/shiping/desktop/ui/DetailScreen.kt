@@ -47,7 +47,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,28 +55,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.shiping.desktop.data.model.FavoriteEntity
 import com.shiping.desktop.data.model.PlayHistoryEntity
 import com.shiping.desktop.data.model.Vod
-import com.shiping.desktop.data.prefs.DesktopPrefs
-import com.shiping.desktop.di.AppContainer
 import com.shiping.desktop.player.IntroMark
-import com.shiping.desktop.player.PlayerController
-import com.shiping.desktop.player.PlayerControllerFactory
-import com.shiping.desktop.player.PlayerOverlay
-import com.shiping.desktop.player.PlayerOverlayConfig
-import com.shiping.desktop.player.PlayerQuality
-import com.shiping.desktop.player.PlayerWindowActions
 import com.shiping.desktop.ui.common.ErrorView
 import com.shiping.desktop.ui.common.LoadingView
 import com.shiping.desktop.ui.common.NetImage
-import com.shiping.desktop.util.AppLog
+import com.shiping.shared.graph.AppGraph
+import com.shiping.shared.prefs.PrefsKeys
+import com.shiping.shared.player.PlayerKernel
 import com.shiping.desktop.util.Constants
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -98,7 +91,7 @@ data class DetailUiState(
 /** 详情状态管理：详情加载、收藏切换、续播进度 */
 class DetailViewModel(
     private val scope: CoroutineScope,
-    private val container: AppContainer,
+    private val graph: AppGraph,
     private val target: Screen.Detail,
 ) {
     private val _uiState = MutableStateFlow(DetailUiState())
@@ -111,7 +104,7 @@ class DetailViewModel(
     fun load() {
         scope.launch {
             _uiState.value = DetailUiState(loading = true)
-            runCatching { container.vodRepository.getDetail(target.vodId, target.sourceUrl) }
+            runCatching { graph.vodRepository.getDetail(target.vodId, target.sourceUrl) }
                 .onSuccess { detail ->
                     _uiState.value = _uiState.value.copy(
                         loading = false,
@@ -127,8 +120,8 @@ class DetailViewModel(
                 }
             // 收藏与历史（失败不影响主流程）
             _uiState.value = _uiState.value.copy(
-                isFavorite = container.favoriteRepository.isFavorite(target.vodId, target.sourceUrl),
-                historyPositionMs = container.playHistoryRepository
+                isFavorite = graph.favoriteRepository.isFavorite(target.vodId, target.sourceUrl),
+                historyPositionMs = graph.playHistoryRepository
                     .getByVod(target.vodId, target.sourceUrl)?.lastPositionMs ?: 0L,
             )
         }
@@ -138,12 +131,12 @@ class DetailViewModel(
     fun toggleFavorite() {
         val vod = _uiState.value.vod ?: return
         scope.launch {
-            val favorite = container.favoriteRepository
+            val favorite = graph.favoriteRepository
             if (_uiState.value.isFavorite) {
                 favorite.remove(vod.vodId, target.sourceUrl)
             } else {
                 favorite.add(
-                    com.shiping.desktop.data.model.FavoriteEntity(
+                    FavoriteEntity(
                         vodId = vod.vodId,
                         sourceUrl = target.sourceUrl,
                         title = vod.vodName.ifBlank { target.title },
@@ -165,14 +158,14 @@ class DetailViewModel(
 /** 详情页双态：浏览态（海报+信息+选集）/ 播放态（左内嵌播放器 + 右信息，对齐 Govin） */
 @Composable
 fun DetailScreen(target: Screen.Detail, app: AppViewModel) {
-    val container = AppContainer.get()
+    val graph = app.graph
     val scope = rememberCoroutineScope()
-    val viewModel = remember(target) { DetailViewModel(scope, container, target) }
+    val viewModel = remember(target) { DetailViewModel(scope, graph, target) }
     val uiState by viewModel.uiState.collectAsState()
     // 页内播放会话（详情页主动点播；推送会话 inPage=false 不在此消费）
     val session by app.playerSession.collectAsState()
     val inPageSession = session?.takeIf { it.inPage && it.sourceUrl == target.sourceUrl }
-    var inlineController by remember { mutableStateOf<PlayerController?>(null) }
+    var inlineKernel by remember { mutableStateOf<PlayerKernel?>(null) }
 
     // 起播去重：同会话序号不重复 loadfile（重播同集 seq 递增必然触发；会话风暴不重复起播）
     var lastPlayedSeq by remember { mutableStateOf(0L) }
@@ -187,27 +180,20 @@ fun DetailScreen(target: Screen.Detail, app: AppViewModel) {
         viewModel.play(0, 0, app)
     }
 
-    // 起播/切流：控制器同步创建（保证 SwingPanel factory 拿到真实视频面），挂载后 play
+    // 起播/切流：内核同步创建（保证播放区工厂拿到真实视频面），渲染面就绪后 play
     LaunchedEffect(inPageSession) {
         val targetSession = inPageSession ?: return@LaunchedEffect
-        val controller = inlineController ?: PlayerControllerFactory
-            .create(PlayerControllerFactory.fromPrefs(container.prefs), container.prefs)
-            .also { inlineController = it }
-        val surface = controller.swingComponent
-        var waited = 0
-        while (surface != null && !surface.isDisplayable && waited < MOUNT_WAIT_TIMEOUT_MS) {
-            delay(MOUNT_POLL_INTERVAL_MS.toLong())
-            waited += MOUNT_POLL_INTERVAL_MS
-        }
+        val kernel = inlineKernel ?: createInPageKernel(graph).also { inlineKernel = it }
+        awaitSurfaceReady(kernel, MOUNT_WAIT_TIMEOUT_MS, MOUNT_POLL_INTERVAL_MS)
         if (targetSession.seq == lastPlayedSeq) return@LaunchedEffect
         lastPlayedSeq = targetSession.seq
         // 起播跳片头（记录过片头且起始位置早于片头结束点时定位到片头后）
         val introEnd = IntroMark.endMs(
-            container.prefs,
+            graph.prefs,
             IntroMark.Mark(targetSession.vodId, targetSession.sourceUrl, targetSession.episodeName),
         )
-        AppLog.i("Detail", "起播: ${targetSession.episodeName} url=${targetSession.playUrl}")
-        controller.play(
+        VmLog.i("Detail", "起播: ${targetSession.episodeName} url=${targetSession.playUrl}")
+        kernel.play(
             targetSession.playUrl,
             targetSession.headers,
             maxOf(targetSession.startMs, introEnd),
@@ -219,15 +205,14 @@ fun DetailScreen(target: Screen.Detail, app: AppViewModel) {
         val targetSession = inPageSession ?: return@LaunchedEffect
         while (true) {
             delay(Constants.HISTORY_SAVE_INTERVAL_MS)
-            if (!container.prefs.getBoolean(DesktopPrefs.KEY_PLAY_RECORD_ENABLED, true)) continue
-            val sourceRecordOn = container.apiSourceRepository.sources.value
+            if (!graph.prefs.getBoolean(PrefsKeys.KEY_PLAY_RECORD_ENABLED, true)) continue
+            val sourceRecordOn = graph.apiSourceRepository.sources.value
                 .firstOrNull { it.url == targetSession.sourceUrl }?.playRecord ?: true
             if (!sourceRecordOn) continue
-            val controller = inlineController ?: continue
-            val time = controller.timeMs.value
+            val time = inlineKernel?.timeMs?.value ?: continue
             if (targetSession.vodId != 0 && time > Constants.PLAYBACK_MEMORY_MIN_MS) {
                 runCatching {
-                    container.playHistoryRepository.save(
+                    graph.playHistoryRepository.save(
                         PlayHistoryEntity(
                             vodId = targetSession.vodId,
                             sourceUrl = targetSession.sourceUrl,
@@ -235,7 +220,7 @@ fun DetailScreen(target: Screen.Detail, app: AppViewModel) {
                             vodPic = targetSession.vodPic,
                             lastEpisodeName = targetSession.episodeName,
                             lastPositionMs = time,
-                            durationMs = controller.durationMs.value,
+                            durationMs = inlineKernel?.durationMs?.value ?: 0L,
                         ),
                     )
                 }
@@ -244,17 +229,17 @@ fun DetailScreen(target: Screen.Detail, app: AppViewModel) {
     }
 
     // 退出播放：释放 native 资源并清空会话（回浏览态）；仅清理本页会话，防止延迟销毁误清新页会话
-    // 释放走后台线程：stop/release 的 native 拆卸耗时秒级，同步执行会卡住返回/切页
+    // 释放走平台异步通道：stop/release 的 native 拆卸耗时秒级，同步执行会卡住返回/切页
     val closeInPage: () -> Unit = {
-        inlineController?.releaseAsync()
-        inlineController = null
+        inlineKernel?.let(::releasePageKernel)
+        inlineKernel = null
         val currentSession = app.playerSession.value
         if (currentSession == null || currentSession.sourceUrl == target.sourceUrl) {
             app.closePlayer()
         }
     }
 
-    // 以 target 为 key：详情 A→详情 B 切换时先销毁 A 的播放，避免旧控制器与新页面错配
+    // 以 target 为 key：详情 A→详情 B 切换时先销毁 A 的播放，避免旧内核与新页面错配
     DisposableEffect(target) {
         onDispose { closeInPage() }
     }
@@ -271,7 +256,7 @@ fun DetailScreen(target: Screen.Detail, app: AppViewModel) {
             uiState.error != null -> ErrorView(uiState.error!!, onRetry = { viewModel.load() })
             else -> DetailBody(
                 Modifier.weight(1f), uiState, target, viewModel, app,
-                inPageSession, inlineController, onExitPlayback = closeInPage,
+                inPageSession, inlineKernel, onExitPlayback = closeInPage,
             )
         }
     }
@@ -286,7 +271,7 @@ private fun DetailBody(
     viewModel: DetailViewModel,
     app: AppViewModel,
     session: PlaybackSession?,
-    controller: PlayerController?,
+    kernel: PlayerKernel?,
     onExitPlayback: () -> Unit,
 ) {
     val vod = uiState.vod ?: return
@@ -294,13 +279,13 @@ private fun DetailBody(
     var selectedSource by remember(vod) { mutableStateOf(0) }
     val episodes = sources.getOrNull(selectedSource)?.episodes.orEmpty()
     val hasHistory = uiState.historyPositionMs > 5000
-    // 浏览态选集弹窗（轻量 Compose 弹窗；播放态选集走 overlay 重量级弹出防被视频面遮挡）
+    // 浏览态选集弹窗（轻量 Compose 弹窗；播放态选集走控制层重量级弹出防被视频面遮挡）
     var showEpisodeDialog by remember { mutableStateOf(false) }
 
     // 播放态：左内嵌播放器 + 右信息/选集（对齐 Govin 点播播放页）
-    if (session != null && controller != null) {
+    if (session != null && kernel != null) {
         DetailPlayMode(
-            modifier, vod, session, controller, target, viewModel, app,
+            modifier, vod, session, kernel, target, viewModel, app,
             uiState.isFavorite, onExitPlayback,
         )
         return
@@ -527,15 +512,16 @@ private fun DetailPlayMode(
     modifier: Modifier,
     vod: Vod,
     session: PlaybackSession,
-    controller: PlayerController,
+    kernel: PlayerKernel,
     target: Screen.Detail,
     viewModel: DetailViewModel,
     app: AppViewModel,
     isFavorite: Boolean,
     onExitPlayback: () -> Unit,
 ) {
+    val graph = app.graph
     // 上一集/下一集（设置开关；索引由会话携带，找不到时（-1）不展示）
-    val showPrevNext = AppContainer.get().prefs.getBoolean(DesktopPrefs.KEY_SHOW_PREV_NEXT, true)
+    val showPrevNext = graph.prefs.getBoolean(PrefsKeys.KEY_SHOW_PREV_NEXT, true)
     val episodeIndex = session.currentEpisodeIndex
     val onPrevEpisode = if (showPrevNext && episodeIndex > 0) {
         { viewModel.play(session.currentSourceIndex, episodeIndex - 1, app) }
@@ -547,74 +533,51 @@ private fun DetailPlayMode(
     } else {
         null
     }
-    // 覆盖式控制层（对照设计稿）：与视频面同属一个 SwingPanel，避免 Compose 压不住 heavyweight 视频面
-    val overlay = remember(controller) {
-        PlayerOverlay(controller.swingComponent, controller)
-    }
-    // 切页命令式隐藏：注册到 AppViewModel（navigate/push/back 时立即原生隐藏视频面与控制层）
-    DisposableEffect(overlay) {
-        app.registerInPageOverlay(overlay)
-        onDispose { app.unregisterInPageOverlay(overlay) }
-    }
     // 播放态订阅（直接读 StateFlow.value 不会触发重组，图标无法切换）
-    val isPlaying by controller.isPlaying.collectAsState()
+    val isPlaying by kernel.isPlaying.collectAsState()
     // 页内全屏状态（铺满整个应用窗口：隐藏侧栏、视频区占满）
     val fullscreen by app.detailFullscreen.collectAsState()
-    // 页内窗口动作：全屏=铺满应用窗口；小窗沿用默认边界切换
-    remember(overlay) {
-        overlay.windowActions = object : PlayerWindowActions {
-            override fun toggleMaximize() = app.toggleDetailFullscreen()
-            override fun toggleFullscreen() = app.toggleDetailFullscreen()
-            override fun toggleMiniWindow() = overlay.defaultWindowActions.toggleMiniWindow()
-            override val isFullscreen: Boolean get() = app.detailFullscreen.value
-        }
-    }
-    SideEffect {
-        val apiName = AppContainer.get().apiSourceRepository.sources.value
-            .firstOrNull { it.url == target.sourceUrl }?.name ?: "当前源"
-        overlay.updateUi(
-            PlayerOverlayConfig(
-                qualities = session.qualityOptions.map { PlayerQuality(it.label, it.qn) },
-                currentQuality = session.qualityOptions.firstOrNull { it.qn == session.currentQn }
-                    ?.let { PlayerQuality(it.label, it.qn) },
-                onQualitySelected = { quality ->
-                    app.switchBiliQuality(session, quality.qn, controller.timeMs.value)
-                },
-                onPrevEpisode = onPrevEpisode?.let { action -> Runnable { action() } },
-                onNextEpisode = onNextEpisode?.let { action -> Runnable { action() } },
-                title = listOf(session.title, session.episodeName)
-                    .filter { it.isNotBlank() }
-                    .joinToString(" "),
-                onBack = Runnable { onExitPlayback() },
-                episodes = session.episodes,
-                currentEpisodeIndex = session.currentEpisodeIndex,
-                onEpisodeSelected = { index -> viewModel.play(session.currentSourceIndex, index, app) },
-                sources = session.playSources.mapIndexed { index, source -> sourceName(source, index) },
-                currentSourceIndex = session.currentSourceIndex,
-                onSourceSelected = { index -> viewModel.play(index, 0, app) },
-                sourceSubtexts = List(session.playSources.size) { apiName },
-                sourceUpdateTexts = session.playSources.map { source ->
-                    if (source.episodes.size > 1) {
-                        "更新至：第 ${source.episodes.size} 集"
-                    } else {
-                        "更新至：全集"
-                    }
-                },
-                shareUrl = session.playUrl,
-                currentKernel = PlayerControllerFactory.fromPrefs(AppContainer.get().prefs),
-                onKernelSelected = { kernel ->
-                    AppContainer.get().prefs.put(PlayerControllerFactory.KEY_PLAYER_KERNEL, kernel.id)
-                },
-                introTarget = IntroMark.Mark(session.vodId, session.sourceUrl, session.episodeName)
-                    .takeIf { session.vodId != 0 && session.sourceUrl.isNotBlank() },
-                onDownloadEpisode = { index ->
-                    val name = session.episodes.getOrNull(index) ?: "第${index + 1}集"
-                    app.showMessage("「$name」下载功能开发中，敬请期待")
-                },
-            ),
-        )
-    }
-    // 选集：页内统一走 overlay 重量级弹出（showEpisodePopup），避免 Compose 弹窗被视频面遮挡
+    val kernelId by app.kernelId.collectAsState()
+    // 控制层动作集（平台 actual 回传；Compose 信息列调起重量级弹出面板）
+    var playerActions by remember { mutableStateOf<InPagePlayerActions?>(null) }
+    val apiName = graph.apiSourceRepository.sources.value
+        .firstOrNull { it.url == target.sourceUrl }?.name ?: "当前源"
+    val surfaceConfig = InPagePlayerConfig(
+        qualities = session.qualityOptions,
+        currentQn = session.currentQn,
+        onQualitySelected = { qn -> app.switchBiliQuality(session, qn, kernel.timeMs.value) },
+        onPrevEpisode = onPrevEpisode,
+        onNextEpisode = onNextEpisode,
+        title = listOf(session.title, session.episodeName)
+            .filter { it.isNotBlank() }
+            .joinToString(" "),
+        onBack = onExitPlayback,
+        episodes = session.episodes,
+        currentEpisodeIndex = session.currentEpisodeIndex,
+        onEpisodeSelected = { index -> viewModel.play(session.currentSourceIndex, index, app) },
+        sources = session.playSources.mapIndexed { index, source -> sourceName(source, index) },
+        currentSourceIndex = session.currentSourceIndex,
+        onSourceSelected = { index -> viewModel.play(index, 0, app) },
+        sourceSubtexts = List(session.playSources.size) { apiName },
+        sourceUpdateTexts = session.playSources.map { source ->
+            if (source.episodes.size > 1) {
+                "更新至：第 ${source.episodes.size} 集"
+            } else {
+                "更新至：全集"
+            }
+        },
+        shareUrl = session.playUrl,
+        kernelId = kernelId,
+        onKernelSelected = { id -> app.switchKernel(id) },
+        introMark = IntroMark.Mark(session.vodId, session.sourceUrl, session.episodeName)
+            .takeIf { session.vodId != 0 && session.sourceUrl.isNotBlank() },
+        onDownloadEpisode = { index ->
+            val name = session.episodes.getOrNull(index) ?: "第${index + 1}集"
+            app.showMessage("「$name」下载功能开发中，敬请期待")
+        },
+    )
+
+    // 选集：页内统一走控制层重量级弹出，避免 Compose 弹窗被视频面遮挡
     BoxWithConstraints(modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
         // 视频面（16:9 固定 + 覆盖控制层；全屏时铺满整个窗口）
         val playerBox: @Composable () -> Unit = {
@@ -625,9 +588,13 @@ private fun DetailPlayMode(
                     Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black)
                 },
             ) {
-                SwingPanel(
-                    factory = remember(overlay) { { overlay } },
+                InPagePlayerSurface(
+                    kernel = kernel,
+                    app = app,
+                    scope = PagePlayerScope.DETAIL,
+                    config = surfaceConfig,
                     modifier = Modifier.fillMaxSize(),
+                    onActionsReady = { playerActions = it },
                 )
             }
         }
@@ -642,11 +609,11 @@ private fun DetailPlayMode(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    IconButton(onClick = { overlay.toggleFullscreen() }) {
+                    IconButton(onClick = { app.toggleDetailFullscreen() }) {
                         Icon(Icons.Filled.Fullscreen, contentDescription = "全屏")
                     }
                     FilledIconButton(
-                        onClick = { controller.togglePlayPause() },
+                        onClick = { kernel.togglePlayPause() },
                         modifier = Modifier.size(44.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
@@ -659,14 +626,14 @@ private fun DetailPlayMode(
                         )
                     }
                     AssistChip(
-                        onClick = { overlay.showEpisodeSheet() },
+                        onClick = { playerActions?.showEpisodeSheet() },
                         enabled = session.episodes.isNotEmpty(),
                         label = { Text("选集") },
                     )
                     if (session.playSources.isNotEmpty()) {
                         // 源胶囊：蓝点 + 当前线路名，点按弹出源列表面板
                         Surface(
-                            onClick = { overlay.showSourceSheet() },
+                            onClick = { playerActions?.showSourceSheet() },
                             shape = RoundedCornerShape(16.dp),
                             color = MaterialTheme.colorScheme.secondaryContainer,
                         ) {
@@ -718,21 +685,21 @@ private fun DetailPlayMode(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(onClick = { overlay.showTimerSheet() }) {
+                    IconButton(onClick = { playerActions?.showTimerSheet() }) {
                         Icon(
                             Icons.Filled.Timer,
                             contentDescription = "定时关闭",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(onClick = { overlay.showMultiThreadSheet() }) {
+                    IconButton(onClick = { playerActions?.showMultiThreadSheet() }) {
                         Icon(
                             Icons.Filled.Tune,
                             contentDescription = "多线程配置",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(onClick = { overlay.showShareSheet() }) {
+                    IconButton(onClick = { playerActions?.showShareSheet() }) {
                         Icon(
                             Icons.Filled.Share,
                             contentDescription = "分享",
@@ -830,9 +797,3 @@ private fun DetailPlayMode(
         }
     }
 }
-
-/** 起播前等待视频面挂载的上限（毫秒） */
-private const val MOUNT_WAIT_TIMEOUT_MS = 5000
-
-/** 视频面挂载轮询间隔（毫秒） */
-private const val MOUNT_POLL_INTERVAL_MS = 50

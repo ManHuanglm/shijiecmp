@@ -46,7 +46,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,7 +55,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -66,13 +64,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.shiping.desktop.data.model.TvChannel
 import com.shiping.desktop.data.model.TvSourceEntity
-import com.shiping.desktop.data.prefs.DesktopPrefs
-import com.shiping.desktop.di.AppContainer
-import com.shiping.desktop.player.PlayerController
-import com.shiping.desktop.player.PlayerControllerFactory
-import com.shiping.desktop.player.PlayerOverlay
-import com.shiping.desktop.player.PlayerOverlayConfig
-import com.shiping.desktop.player.PlayerWindowActions
+import com.shiping.shared.graph.AppGraph
+import com.shiping.shared.prefs.PrefsKeys
+import com.shiping.shared.player.PlayerKernel
 import com.shiping.desktop.ui.common.DropdownSelector
 import com.shiping.desktop.ui.common.EmptyView
 import com.shiping.desktop.ui.common.ErrorView
@@ -97,9 +91,9 @@ data class TvUiState(
 /** 直播状态管理：直播源切换 + 频道列表拉取 */
 class TvViewModel(
     private val scope: CoroutineScope,
-    private val container: AppContainer,
+    private val graph: AppGraph,
 ) {
-    private val tvRepository = container.tvRepository
+    private val tvRepository = graph.tvRepository
 
     private val _uiState = MutableStateFlow(TvUiState())
     val uiState: StateFlow<TvUiState> = _uiState.asStateFlow()
@@ -127,7 +121,7 @@ class TvViewModel(
     /** 切换直播源并重新拉取频道 */
     fun selectSource(source: TvSourceEntity) {
         _currentSource.value = source
-        container.prefs.put(DesktopPrefs.KEY_CURRENT_TV_ID, source.id)
+        graph.prefs.put(PrefsKeys.KEY_CURRENT_TV_ID, source.id)
         loadChannels(source)
     }
 
@@ -148,9 +142,9 @@ class TvViewModel(
  */
 @Composable
 fun TvScreen(app: AppViewModel) {
-    val container = AppContainer.get()
+    val graph = app.graph
     val scope = rememberCoroutineScope()
-    val viewModel = remember { TvViewModel(scope, container) }
+    val viewModel = remember { TvViewModel(scope, graph) }
     val uiState by viewModel.uiState.collectAsState()
     val sources by viewModel.sources.collectAsState()
     val currentSource by viewModel.currentSource.collectAsState()
@@ -163,10 +157,10 @@ fun TvScreen(app: AppViewModel) {
     val visibleChannels = groups.getOrNull(selectedGroupIndex)?.channels ?: uiState.channels
 
     // 收藏频道（favoriteKey 集合，持久化到 prefs）
-    val prefs = container.prefs
+    val prefs = graph.prefs
     var favoriteKeys by remember {
         mutableStateOf(
-            prefs.getString(DesktopPrefs.KEY_TV_FAVORITES)
+            prefs.getString(PrefsKeys.KEY_TV_FAVORITES)
                 .split(',')
                 .filter(String::isNotBlank)
                 .toSet(),
@@ -179,7 +173,7 @@ fun TvScreen(app: AppViewModel) {
             favoriteKeys + channel.favoriteKey
         }
         favoriteKeys = next
-        prefs.put(DesktopPrefs.KEY_TV_FAVORITES, next.joinToString(","))
+        prefs.put(PrefsKeys.KEY_TV_FAVORITES, next.joinToString(","))
     }
 
     // 播放态右侧栏选中项：0=收藏 1=更新时间 2+=分组（默认第一个分组）
@@ -190,36 +184,33 @@ fun TvScreen(app: AppViewModel) {
         else -> groups.getOrNull(railTabIndex - 2)?.channels ?: uiState.channels
     }
 
-    // 内嵌播放状态：当前频道 / 线路序号 / 控制器（首次点频道按内核设置创建）
+    // 内嵌播放状态：当前频道 / 线路序号 / 内核（首次点频道按内核设置创建）
     var currentChannel by remember { mutableStateOf<TvChannel?>(null) }
     var currentLineIndex by remember { mutableStateOf(0) }
-    var playerController by remember { mutableStateOf<PlayerController?>(null) }
+    var playerKernel by remember { mutableStateOf<PlayerKernel?>(null) }
 
     // 失败自动容错：连续换源计数（播放成功清零，超过上限停止防死循环）
     var failoverCount by remember { mutableStateOf(0) }
 
-    // 离开直播页释放 native 播放器并复位全屏（释放走后台线程，避免卡住切页）
+    // 离开直播页释放 native 播放器并复位全屏（释放走平台异步通道，避免卡住切页）
     DisposableEffect(Unit) {
         onDispose {
             app.closeTvFullscreen()
-            playerController?.releaseAsync()
-            playerController = null
+            playerKernel?.let(::releasePageKernel)
+            playerKernel = null
         }
     }
 
     /**
-     * 手动播放/切台/切线路：重置容错计数，同步创建控制器（保证 SwingPanel factory
-     * 拿到真实视频面），起播由下方协程在视频面挂载后执行。
+     * 手动播放/切台/切线路：重置容错计数，同步创建内核（保证播放区工厂
+     * 拿到真实视频面），起播由下方协程在视频面就绪后执行。
      */
     val startPlay: (TvChannel, Int) -> Unit = { channel, lineIndex ->
         failoverCount = 0
         currentChannel = channel
         currentLineIndex = lineIndex
-        if (playerController == null) {
-            playerController = PlayerControllerFactory.create(
-                PlayerControllerFactory.fromPrefs(container.prefs),
-                container.prefs,
-            )
+        if (playerKernel == null) {
+            playerKernel = createInPageKernel(graph)
         }
     }
 
@@ -242,47 +233,42 @@ fun TvScreen(app: AppViewModel) {
         }
     }
 
-    // 起播流程：等视频面挂载（内核要求 displayable）→ 播放 → 失败监控（报错/长时间无画面自动换源）
+    // 起播流程：等视频面就绪 → 播放 → 失败监控（报错/长时间无画面自动换源）
     LaunchedEffect(currentChannel, currentLineIndex) {
         val channel = currentChannel ?: return@LaunchedEffect
-        val controller = playerController ?: return@LaunchedEffect
-        val surface = controller.swingComponent
-        var waited = 0
-        while (surface != null && !surface.isDisplayable && waited < MOUNT_WAIT_TIMEOUT_MS) {
-            delay(MOUNT_POLL_INTERVAL_MS.toLong())
-            waited += MOUNT_POLL_INTERVAL_MS
-        }
-        controller.play(channel.urls.getOrElse(currentLineIndex) { channel.url }, emptyMap(), 0L)
+        val kernel = playerKernel ?: return@LaunchedEffect
+        awaitSurfaceReady(kernel, MOUNT_WAIT_TIMEOUT_MS, MOUNT_POLL_INTERVAL_MS)
+        kernel.play(channel.urls.getOrElse(currentLineIndex) { channel.url }, emptyMap(), 0L)
         var everPlayed = false
         var elapsed = 0
         var stallMs = 0
         while (elapsed < FAILOVER_MAX_WAIT_MS) {
             delay(FAILOVER_POLL_INTERVAL_MS.toLong())
             elapsed += FAILOVER_POLL_INTERVAL_MS
-            if (controller.isPlaying.value) {
+            if (kernel.isPlaying.value) {
                 everPlayed = true
                 failoverCount = 0
                 return@LaunchedEffect
             }
-            if (!controller.errorText.value.isNullOrBlank() || !controller.initError.value.isNullOrBlank()) break
+            if (!kernel.errorText.value.isNullOrBlank() || !kernel.initError.value.isNullOrBlank()) break
             // 已播放成功后的暂停/断流不自动容错（避免用户手动暂停被切台）
             if (everPlayed) return@LaunchedEffect
-            stallMs = if (controller.isBuffering.value) 0 else stallMs + FAILOVER_POLL_INTERVAL_MS
+            stallMs = if (kernel.isBuffering.value) 0 else stallMs + FAILOVER_POLL_INTERVAL_MS
             if (stallMs >= FAILOVER_STALL_TIMEOUT_MS) break
         }
         failoverPlay()
     }
 
-    /** 停止播放并释放控制器，回到列表态（释放走后台线程，避免卡住点击响应） */
+    /** 停止播放并释放内核，回到列表态（释放走平台异步通道，避免卡住点击响应） */
     val stopPlay: () -> Unit = {
-        playerController?.releaseAsync()
-        playerController = null
+        playerKernel?.let(::releasePageKernel)
+        playerKernel = null
         currentChannel = null
     }
 
     val channel = currentChannel
-    val activeController = playerController
-    if (channel == null || activeController == null) {
+    val activeKernel = playerKernel
+    if (channel == null || activeKernel == null) {
         Column(modifier = Modifier.fillMaxSize()) {
             // 顶栏：台标 + 源切换 + 频道数 + 刷新
             Row(
@@ -367,7 +353,7 @@ fun TvScreen(app: AppViewModel) {
             app = app,
             channel = channel,
             lineIndex = currentLineIndex,
-            controller = activeController,
+            kernel = activeKernel,
             groups = groups,
             allChannels = uiState.channels,
             railTabIndex = railTabIndex,
@@ -390,7 +376,7 @@ private fun TvPlayMode(
     app: AppViewModel,
     channel: TvChannel,
     lineIndex: Int,
-    controller: PlayerController,
+    kernel: PlayerKernel,
     groups: List<GroupedChannels>,
     allChannels: List<TvChannel>,
     railTabIndex: Int,
@@ -401,68 +387,35 @@ private fun TvPlayMode(
     onPlayChannel: (TvChannel, Int) -> Unit,
     onBack: () -> Unit,
 ) {
-    val prefs = AppContainer.get().prefs
     val displayTitle = if (lineIndex > 0) "${channel.name}（线路${lineIndex + 1}）" else channel.name
     val isFavorite = channel.favoriteKey in favoriteKeys
-    // 覆盖式控制层：与详情页同一播放器组件（频道列表/播放设置走右缘滑出面板）
-    val overlay = remember(controller) { PlayerOverlay(controller.swingComponent, controller) }
-    // 切页命令式隐藏：注册到 AppViewModel（navigate/push/back 时立即原生隐藏视频面与控制层）
-    DisposableEffect(overlay) {
-        app.registerInPageOverlay(overlay)
-        onDispose { app.unregisterInPageOverlay(overlay) }
-    }
     // 直播页被其他 Tab 覆盖时隐藏视频面与控制层（heavyweight 面会盖住前台页面），回前台恢复
+    var tvActions by remember { mutableStateOf<InPagePlayerActions?>(null) }
     val navStack by app.navStack.collectAsState()
     LaunchedEffect(navStack.lastOrNull()) {
-        overlay.setBackground(navStack.lastOrNull() != Screen.Tv)
+        tvActions?.setBackground(navStack.lastOrNull() != Screen.Tv)
     }
     // 直播页内全屏（隐藏侧栏铺满应用窗口；返回键/双击/Esc 先退全屏）
     val fullscreen by app.tvFullscreen.collectAsState()
+    val kernelId by app.kernelId.collectAsState()
     DisposableEffect(Unit) {
         onDispose { app.closeTvFullscreen() }
     }
-    remember(overlay) {
-        overlay.windowActions = object : PlayerWindowActions {
-            override fun toggleMaximize() = app.toggleTvFullscreen()
-            override fun toggleFullscreen() = app.toggleTvFullscreen()
-            override fun toggleMiniWindow() = overlay.defaultWindowActions.toggleMiniWindow()
-            override val isFullscreen: Boolean get() = app.tvFullscreen.value
-        }
-    }
-    SideEffect {
-        overlay.updateUi(
-            PlayerOverlayConfig(
-                title = displayTitle,
-                onBack = Runnable { onBack() },
-                onChannelList = Runnable {
-                    overlay.showSidePanel(
-                        TvChannelSidePanel(
-                            initialTabIndex = railTabIndex,
-                            groupNames = groups.map { it.name },
-                            currentChannelKey = channel.favoriteKey,
-                            channelsProvider = { tab ->
-                                when (tab) {
-                                    0 -> allChannels.filter { it.favoriteKey in favoriteKeys }
-                                    1 -> allChannels
-                                    else -> groups.getOrNull(tab - 2)?.channels ?: allChannels
-                                }
-                            },
-                            onSelectTab = { tab -> onSelectRailTab(tab) },
-                            onPlay = { picked, line -> onPlayChannel(picked, line) },
-                        ),
-                        TV_CHANNEL_PANEL_WIDTH_PX,
-                    )
-                },
-                onPlayerSettings = Runnable {
-                    overlay.showSidePanel(PlayerSettingsPanel(), TV_SETTINGS_PANEL_WIDTH_PX)
-                },
-                currentKernel = PlayerControllerFactory.fromPrefs(prefs),
-                onKernelSelected = { kernel ->
-                    prefs.put(PlayerControllerFactory.KEY_PLAYER_KERNEL, kernel.id)
-                },
-            ),
-        )
-    }
+    // 频道侧栏规格（桌面=右缘滑出面板；▦ 按钮触发）
+    val channelPanelSpec = TvChannelPanelSpec(
+        initialTabIndex = railTabIndex,
+        groupNames = groups.map { it.name },
+        currentChannelKey = channel.favoriteKey,
+        channelsProvider = { tab ->
+            when (tab) {
+                0 -> allChannels.filter { it.favoriteKey in favoriteKeys }
+                1 -> allChannels
+                else -> groups.getOrNull(tab - 2)?.channels ?: allChannels
+            }
+        },
+        onSelectTab = { tab -> onSelectRailTab(tab) },
+        onPlay = { picked, line -> onPlayChannel(picked, line) },
+    )
     Column(modifier = Modifier.fillMaxSize()) {
         // 顶栏（全屏时隐藏，控制层顶栏已有返回/标题）
         if (!fullscreen) {
@@ -509,14 +462,25 @@ private fun TvPlayMode(
                             .background(if (fullscreen) Color.Black else Color.Transparent),
                         contentAlignment = Alignment.TopCenter,
                     ) {
-                        // 全屏/非全屏共用同一 SwingPanel 槽位，切换不重建视频面（防 wid 重挂）
-                        SwingPanel(
-                            factory = remember(overlay) { { overlay } },
+                        // 全屏/非全屏共用同一播放区槽位，切换不重建视频面（防 wid 重挂）
+                        InPagePlayerSurface(
+                            kernel = kernel,
+                            app = app,
+                            scope = PagePlayerScope.TV,
+                            config = InPagePlayerConfig(
+                                title = displayTitle,
+                                onBack = onBack,
+                                channelPanel = channelPanelSpec,
+                                showPlayerSettings = true,
+                                kernelId = kernelId,
+                                onKernelSelected = { id -> app.switchKernel(id) },
+                            ),
                             modifier = if (fullscreen) {
                                 Modifier.fillMaxSize()
                             } else {
                                 Modifier.size(boxWidth, boxHeight)
                             },
+                            onActionsReady = { tvActions = it },
                         )
                     }
                 }
@@ -527,7 +491,7 @@ private fun TvPlayMode(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        IconButton(onClick = { overlay.toggleFullscreen() }) {
+                        IconButton(onClick = { app.toggleTvFullscreen() }) {
                             Icon(Icons.Filled.Fullscreen, contentDescription = "全屏")
                         }
                         IconButton(onClick = { onToggleFavorite(channel) }) {
@@ -815,12 +779,6 @@ private fun TvChannelLogo(url: String, modifier: Modifier = Modifier) {
 
 /** 频道分组 */
 private data class GroupedChannels(val name: String, val channels: List<TvChannel>)
-
-/** 起播前等待视频面挂载的上限（毫秒） */
-private const val MOUNT_WAIT_TIMEOUT_MS = 5000
-
-/** 视频面挂载轮询间隔（毫秒） */
-private const val MOUNT_POLL_INTERVAL_MS = 50
 
 /** 起播失败监控最长等待（毫秒，超时未播放自动换源） */
 private const val FAILOVER_MAX_WAIT_MS = 60_000
