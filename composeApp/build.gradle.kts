@@ -31,6 +31,17 @@ kotlin {
             implementation("androidx.core:core-ktx:1.12.0")
             implementation("androidx.activity:activity-compose:1.8.2")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+            // 爬虫运行时（jar 下载）与 CMS 接口（Retrofit/ApiService）
+            implementation("com.squareup.okhttp3:okhttp:4.12.0")
+            implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+            implementation("com.squareup.retrofit2:retrofit:2.9.0")
+            implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+            // 播放内核（M4）：media3 ExoPlayer + HLS/DASH
+            implementation("androidx.media3:media3-exoplayer:1.5.1")
+            implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
+            implementation("androidx.media3:media3-exoplayer-dash:1.5.1")
+            implementation("androidx.media3:media3-ui:1.5.1")
+            implementation("androidx.media3:media3-common:1.5.1")
         }
         val desktopMain by getting {
             // 捆绑原生资源（mpv/vlc/mdk）进 jar：msi/exe 安装包仅打包 jars，
@@ -62,6 +73,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     packaging {
