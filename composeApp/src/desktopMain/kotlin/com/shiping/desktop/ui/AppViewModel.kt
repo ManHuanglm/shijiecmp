@@ -1,4 +1,4 @@
-﻿package com.shiping.desktop.ui
+package com.shiping.desktop.ui
 
 import com.shiping.desktop.data.model.PlayEpisode
 import com.shiping.desktop.data.model.PlaySource
@@ -25,8 +25,9 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 应用级状态：导航栈、播放会话、全局提示、局域网推送接收。
+ * graph 公开给屏幕层：屏内局部 ViewModel 与直接仓库访问经它取依赖。
  */
-class AppViewModel(private val graph: AppGraph) {
+class AppViewModel(val graph: AppGraph) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
