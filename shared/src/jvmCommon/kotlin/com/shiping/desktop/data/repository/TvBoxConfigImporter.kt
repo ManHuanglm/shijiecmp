@@ -1,14 +1,15 @@
 package com.shiping.desktop.data.repository
 
-import com.github.catvod.utils.Util
 import com.shiping.app.data.repository.TvBoxConfigParser
 import com.shiping.desktop.data.model.ApiSourceEntity
 import com.shiping.desktop.data.model.ParseSourceEntity
 import com.shiping.desktop.data.model.TvSourceEntity
-import com.shiping.desktop.data.spider.SpiderHttp
-import com.shiping.desktop.util.AppLog
+import com.shiping.shared.repository.ApiSourceRepository
+import com.shiping.shared.repository.ParseSourceRepository
+import com.shiping.shared.repository.TvRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
 
@@ -16,11 +17,14 @@ import java.io.IOException
  * TVBox 配置导入编排（对齐 app TvBoxConfigImporter）：
  * 拉取配置 → 解析 → 按类别写入 API 源（含爬虫源）/ 解析源 / 直播源。
  * 爬虫源为整体替换；CMS/解析/直播源为追加式、不去重。
+ * jvmCommon 跨端共用（桌面/Android 各自注入 OkHttpClient 与仓库实现）。
  */
 class TvBoxConfigImporter(
     private val apiSourceRepository: ApiSourceRepository,
     private val parseSourceRepository: ParseSourceRepository,
     private val tvRepository: TvRepository,
+    /** 配置拉取客户端（桌面=SpiderHttp.client，Android=SpiderHttp.client），UA 由 fetch 注入 */
+    private val client: OkHttpClient,
 ) {
 
     data class Summary(
@@ -148,9 +152,9 @@ class TvBoxConfigImporter(
         // 按 UA 区分内容：浏览器 UA 返回 HTML 页面，okhttp UA 才返回加密配置文本
         val request = Request.Builder()
             .url(normalizeUrl(url))
-            .header("User-Agent", Util.OKHTTP)
+            .header("User-Agent", "okhttp/" + okhttp3.OkHttp.VERSION)
             .build()
-        SpiderHttp.client.newCall(request).execute().use { response ->
+        client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
             response.body?.bytes() ?: ByteArray(0)
         }

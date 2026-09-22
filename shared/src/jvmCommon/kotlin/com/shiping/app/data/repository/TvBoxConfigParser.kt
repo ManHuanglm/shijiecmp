@@ -1,11 +1,13 @@
 package com.shiping.app.data.repository
 
-import com.github.catvod.utils.Crypto
 import com.google.gson.JsonElement
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * TVBox 配置仓解析器。
@@ -196,7 +198,7 @@ object TvBoxConfigParser {
         val cipherStart = compact.indexOf("2324") + 4
         val cipherEnd = compact.length - 26
         check(cipherEnd > cipherStart && (cipherEnd - cipherStart) % 32 == 0) { "密文长度非法" }
-        val decrypted = Crypto.decryptAesCbc(
+        val decrypted = decryptAesCbc(
             hexToBytes(compact.substring(cipherStart, cipherEnd)),
             padEnd(decoded.substring(keyStart, keyEnd)).toByteArray(Charsets.UTF_8),
             padEnd(decoded.substring(decoded.length - 13)).toByteArray(Charsets.UTF_8),
@@ -207,6 +209,13 @@ object TvBoxConfigParser {
     /** 不足 16 位右侧补 '0' */
     private fun padEnd(value: String): String =
         if (value.length >= 16) value else value + "0000000000000000".substring(value.length)
+
+    /** AES/CBC/PKCS5Padding 解密（与 catvod Crypto.decryptAesCbc 同实现，jvmCommon 不依赖桥） */
+    private fun decryptAesCbc(data: ByteArray, key: ByteArray, iv: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
+        return cipher.doFinal(data)
+    }
 
     /**
      * 杂质文本（配置常带免责声明/注释前缀）中提取 JSON 并解析：

@@ -13,6 +13,7 @@ import com.shiping.desktop.data.repository.TvBoxConfigImporter
 import com.shiping.desktop.data.repository.TvRepository
 import com.shiping.desktop.data.repository.VodRepository
 import com.shiping.desktop.data.spider.DesktopSpiderRuntime
+import com.shiping.desktop.data.spider.SpiderHttp
 import com.shiping.desktop.util.AppLog
 import com.shiping.shared.graph.AppGraph
 import com.shiping.shared.graph.ImportResult
@@ -119,7 +120,7 @@ class AppContainer private constructor() : AppGraph {
         playHistoryRepository = PlayHistoryRepository(db)
         favoriteRepository = FavoriteRepository(db)
         vodRepository = VodRepository(CmsClient(), apiSourceRepository, parseSourceRepository, prefs)
-        tvBoxImporter = TvBoxConfigImporter(apiSourceRepository, parseSourceRepository, tvRepository)
+        tvBoxImporter = TvBoxConfigImporter(apiSourceRepository, parseSourceRepository, tvRepository, SpiderHttp.client)
 
         // 爬虫运行时：注入 stub 上下文 + 数据目录，启动本地代理（9978 起）
         DesktopSpiderRuntime.init(stubContext, dataDir)
