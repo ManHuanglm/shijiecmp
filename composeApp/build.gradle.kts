@@ -1,0 +1,115 @@
+// composeApp：Compose Multiplatform UI 模块。
+// commonMain 统一 UI（M3 起以桌面版为底）；androidMain 应用入口+Android 平台实现；
+// desktopMain 桌面入口+JNA 播放内核装配。
+
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.multiplatform")
+    id("org.jetbrains.compose")
+}
+
+kotlin {
+    androidTarget {
+        compilations.all {
+            kotlinOptions {
+                jvmTarget = "17"
+            }
+        }
+    }
+    jvm("desktop")
+
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project(":shared"))
+            implementation(compose.runtime)
+            implementation(compose.foundation)
+            implementation(compose.material3)
+            implementation(compose.materialIconsExtended)
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+        }
+        androidMain.dependencies {
+            implementation("androidx.core:core-ktx:1.12.0")
+            implementation("androidx.activity:activity-compose:1.8.2")
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+        }
+        val desktopMain by getting {
+            // 捆绑原生资源（mpv/vlc/mdk）进 jar：msi/exe 安装包仅打包 jars，
+            // 安装版首次运行由 BundledNative 解压到数据目录后加载
+            resources.srcDir("app-resources")
+            dependencies {
+                implementation(compose.desktop.currentOs)
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.8.1")
+                // 探针/桌面代码编译期需要（运行时经 shared 传递提供）
+                compileOnly("com.squareup.okhttp3:okhttp:4.12.0")
+                compileOnly("com.google.code.gson:gson:2.10.1")
+            }
+        }
+    }
+}
+
+android {
+    namespace = "com.shiping.app"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "com.shiping.app"
+        minSdk = 24
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+compose.desktop {
+    application {
+        // 主入口可经 -Pcmp.mainClass=... 覆盖（如 SpiderProbeKt 探针），默认正式入口
+        mainClass = (findProperty("cmp.mainClass") as String?) ?: "com.shiping.desktop.MainKt"
+        // Windows 控制台 UTF-8；jna.encoding 决定 JNA String 参数（含中文播放地址）编解码
+        jvmArgs += listOf("-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8", "-Djna.encoding=UTF-8")
+
+        nativeDistributions {
+            targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi, org.jetbrains.compose.desktop.application.dsl.TargetFormat.Exe)
+            packageName = "ShijieCmp"
+            packageVersion = "1.0.0"
+            vendor = "shijie"
+            // 捆绑资源：mpv/（libmpv-2.dll）、vlc/（libvlc.dll+plugins+lua）、mdk/（mdk.dll+ffmpeg-9.dll+libass.dll）
+            appResourcesRootDir.set(project.layout.projectDirectory.dir("app-resources"))
+            // jlink 模块显式声明（照抄原工程清单）：java.desktop(Compose/Swing 播放窗口)、
+            // java.sql(SQLite JDBC)、jdk.unsupported(dex2jar/ASM/JNA)；勿用 includeAllModules
+            modules(
+                "java.base", "java.desktop", "java.logging", "java.management", "java.naming",
+                "java.sql", "java.xml", "java.security.jgss", "jdk.unsupported",
+                "jdk.crypto.ec", "jdk.crypto.mscapi", "jdk.zipfs",
+            )
+            windows {
+                menu = true
+                shortcut = true
+                dirChooser = true
+            }
+        }
+    }
+}
+
+// 捆绑资源同步兜底（照抄原工程方案）：插件 1.6.11 在 Gradle 8.14 下 prepareAppResources
+// 判定 NO-SOURCE，mpv/mdk 内核不会进包。finalizedBy 在 jpackage 产物落盘后把
+// app-resources 直接镜像到 <app-image>/app/resources（cfg 中 compose.application.resources.dir），
+// Sync 幂等镜像，重复构建安全。
+val syncBundledNativeResources = tasks.register<Sync>("syncBundledNativeResources") {
+    from(project.layout.projectDirectory.dir("app-resources"))
+    into(layout.buildDirectory.dir("compose/binaries/main/app/ShijieCmp/app/resources"))
+}
+
+tasks.matching { it.name == "createDistributable" || it.name == "packageDistributionForCurrentOS" }.configureEach {
+    finalizedBy(syncBundledNativeResources)
+}

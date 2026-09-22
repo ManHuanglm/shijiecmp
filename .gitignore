@@ -1,0 +1,26 @@
+# Gradle
+.gradle/
+build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# AI 工具本地目录
+.trae/
+
+# 本机配置（含 sdk.dir，不入库）
+local.properties
+
+# 桌面端超大播放内核 DLL/SO（libmpv-2.dll 114MB 超 GitHub 100MB 单文件上限，不入库；
+# 运行时经 app-resources 目录定位，见 composeApp/app-resources 说明）
+composeApp/app-resources/mpv/
+composeApp/app-resources/vlc/
+composeApp/app-resources/mdk/
+
+# 本地验证日志与临时产物
+*.log
+probe-*.txt
+app-run*.txt
+tmp/
