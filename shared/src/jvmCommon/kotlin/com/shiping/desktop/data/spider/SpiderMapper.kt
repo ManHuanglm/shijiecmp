@@ -1,6 +1,5 @@
 package com.shiping.desktop.data.spider
 
-import com.github.catvod.Proxy
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
@@ -99,8 +98,8 @@ object SpiderMapper {
         val biliProtocol = arrayProtocol ?: parseBiliQualityProtocol(playUrlPrefix)
         var url = arrayProtocol?.directUrl ?: optString(o, "url").orEmpty()
         // 部分爬虫 jar 自带 catvod Proxy 副本，拼出的本地代理地址端口为默认值 -1，
-        // 统一改写为宿主本地代理真实端口，否则播放器报 invalid port
-        url = url.replace(LOCAL_PROXY_PLACEHOLDER, LOCAL_PROXY_PREFIX + Proxy.getPort())
+        // 统一改写为宿主本地代理真实端口（SpiderProxyPort 由各端桥回调写入），否则播放器报 invalid port
+        url = url.replace(LOCAL_PROXY_PLACEHOLDER, LOCAL_PROXY_PREFIX + SpiderProxyPort.current)
         when {
             biliProtocol != null -> Unit
             parse == PARSE_NEEDED && !isDirectStream(url) && !parserUrl.isNullOrBlank() -> url = parserUrl + url

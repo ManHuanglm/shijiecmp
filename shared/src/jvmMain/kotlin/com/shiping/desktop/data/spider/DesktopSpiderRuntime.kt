@@ -111,7 +111,11 @@ object DesktopSpiderRuntime : SpiderEngine {
         DesktopSpiderRuntime.dataDir = dataDir
         SpiderProxyServer.install(
             SpiderProxyBridge(
-                onPortChanged = { port -> com.github.catvod.Proxy.set(port) },
+                onPortChanged = { port ->
+                    com.github.catvod.Proxy.set(port)
+                    // 同步到 jvmCommon 端口状态：SpiderMapper 改写占位代理地址用
+                    com.shiping.desktop.data.spider.SpiderProxyPort.current = port
+                },
                 dispatchProxy = { params -> proxyInvoke(params) },
                 extraRouteHandler = { session -> DesktopProxyRoutes.handle(session) },
                 logger = { level, tag, message ->
