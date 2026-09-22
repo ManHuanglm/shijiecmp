@@ -1,6 +1,5 @@
-package com.shiping.desktop.player
+﻿package com.shiping.desktop.player
 
-import com.shiping.desktop.data.prefs.DesktopPrefs
 import com.shiping.desktop.util.AppLog
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -21,7 +20,7 @@ import uk.co.caprica.vlcj.player.embedded.videosurface.VideoSurfaceAdapters
  *
  * 用户设置（画面比例）在起播与切换时应用；硬解码开关为 mpv 页专属，VLC 默认自动硬解。
  */
-class VlcPlayerController(prefs: DesktopPrefs) : AbstractKernelController(prefs) {
+class VlcPlayerController(prefs: com.shiping.shared.prefs.KeyValueStore) : AbstractKernelController(prefs) {
 
     companion object {
         /** 缓冲事件阈值：cache < 100% 视为缓冲中 */
@@ -88,7 +87,7 @@ class VlcPlayerController(prefs: DesktopPrefs) : AbstractKernelController(prefs)
         runCatching {
             player.controls().stop()
             player.media().play(request.url, *options.toTypedArray())
-            applyVideoScale(player, prefs.getString(DesktopPrefs.KEY_VIDEO_SCALE, "fit"))
+            applyVideoScale(player, prefs.getString(com.shiping.shared.prefs.PrefsKeys.KEY_VIDEO_SCALE, "fit"))
         }.onFailure {
             AppLog.e(logTag, "起播失败: ${it.message}")
             _errorText.value = "播放失败：${it.message ?: "未知错误"}"

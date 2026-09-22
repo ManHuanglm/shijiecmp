@@ -122,13 +122,13 @@ enum class PlayerKernel(val id: String, val displayName: String) {
 /** 内核工厂：按设置创建对应播放控制器 */
 object PlayerControllerFactory {
 
-    /** 内核偏好键（DesktopPrefs 持久化） */
+    /** 内核偏好键（KeyValueStore 持久化，键名收口于 PrefsKeys） */
     const val KEY_PLAYER_KERNEL = "playerKernel"
 
-    fun fromPrefs(prefs: DesktopPrefs): PlayerKernel =
+    fun fromPrefs(prefs: com.shiping.shared.prefs.KeyValueStore): PlayerKernel =
         PlayerKernel.fromId(prefs.getString(KEY_PLAYER_KERNEL, PlayerKernel.MPV.id))
 
-    fun create(kernel: PlayerKernel, prefs: DesktopPrefs): PlayerController = when (kernel) {
+    fun create(kernel: PlayerKernel, prefs: com.shiping.shared.prefs.KeyValueStore): PlayerController = when (kernel) {
         PlayerKernel.MPV -> MpvPlayerController(prefs)
         PlayerKernel.VLC -> VlcPlayerController(prefs)
         PlayerKernel.MDK -> MdkPlayerController(prefs)

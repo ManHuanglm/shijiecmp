@@ -1,6 +1,5 @@
-package com.shiping.desktop.player
+﻿package com.shiping.desktop.player
 
-import com.shiping.desktop.data.prefs.DesktopPrefs
 import com.shiping.desktop.util.AppLog
 import com.sun.jna.Library
 import com.sun.jna.Native
@@ -37,7 +36,7 @@ private interface LibMpv : Library {
  * 用户设置（硬解码/字幕样式/画面比例）在初始化时从 DesktopPrefs 读取注入，
  * 修改后对下次打开的播放窗口生效。
  */
-class MpvPlayerController(prefs: DesktopPrefs) : AbstractKernelController(prefs) {
+class MpvPlayerController(prefs: com.shiping.shared.prefs.KeyValueStore) : AbstractKernelController(prefs) {
 
     companion object {
         // mpv_event.event_id（client.h mpv_event_id）
@@ -231,7 +230,7 @@ class MpvPlayerController(prefs: DesktopPrefs) : AbstractKernelController(prefs)
         if (hwndValue == 0L) throw IllegalStateException("视频面窗口句柄未就绪")
         l.mpv_set_option_string(handle, "wid", hwndValue.toString())
         // 硬解码开关（设置页可关，关闭后软解兼容性更好但更耗 CPU）
-        val hwdec = if (prefs.getBoolean(DesktopPrefs.KEY_MPV_HWDEC, true)) "auto-safe" else "no"
+        val hwdec = if (prefs.getBoolean(com.shiping.shared.prefs.PrefsKeys.KEY_MPV_HWDEC, true)) "auto-safe" else "no"
         l.mpv_set_option_string(handle, "hwdec", hwdec)
         l.mpv_set_option_string(handle, "keep-open", "no")
         check(l.mpv_initialize(handle) == 0) { "mpv_initialize 失败" }
@@ -255,28 +254,28 @@ class MpvPlayerController(prefs: DesktopPrefs) : AbstractKernelController(prefs)
      */
     private fun applyUserSettings(l: LibMpv, handle: Pointer) {
         // 特效字幕：开=完全遵循 ASS 脚本样式；关=用用户样式覆盖（特效失效）
-        val fxSubtitle = prefs.getBoolean(DesktopPrefs.KEY_MPV_FX_SUBTITLE, true)
+        val fxSubtitle = prefs.getBoolean(com.shiping.shared.prefs.PrefsKeys.KEY_MPV_FX_SUBTITLE, true)
         l.mpv_set_property_string(handle, "sub-ass-override", if (fxSubtitle) "no" else "force")
         // 字幕颜色（默认白不注入，避免覆盖脚本样式）
-        val subColor = prefs.getString(DesktopPrefs.KEY_SUB_COLOR, "#FFFFFF")
+        val subColor = prefs.getString(com.shiping.shared.prefs.PrefsKeys.KEY_SUB_COLOR, "#FFFFFF")
         if (subColor.isNotBlank() && !subColor.equals("#FFFFFF", true)) {
             l.mpv_set_property_string(handle, "sub-color", subColor)
         }
         // 字幕背景颜色 + 透明度（0-100 → AARRGGBB 的 AA；默认 40% 不注入）
-        val backColor = prefs.getString(DesktopPrefs.KEY_SUB_BACK_COLOR, "#000000")
-        val backAlpha = prefs.getInt(DesktopPrefs.KEY_SUB_BACK_ALPHA, 40)
+        val backColor = prefs.getString(com.shiping.shared.prefs.PrefsKeys.KEY_SUB_BACK_COLOR, "#000000")
+        val backAlpha = prefs.getInt(com.shiping.shared.prefs.PrefsKeys.KEY_SUB_BACK_ALPHA, 40)
         if (!backColor.equals("#000000", true) || backAlpha != 40) {
             val alpha = (backAlpha.coerceIn(0, 100) * 255 / 100)
             l.mpv_set_property_string(handle, "sub-back-color", "#%02X%s".format(alpha, backColor.removePrefix("#")))
             l.mpv_set_property_string(handle, "sub-border-style", "4")
         }
         // 字幕大小（百分比 → sub-scale 倍率）
-        val subSize = prefs.getInt(DesktopPrefs.KEY_SUB_SIZE, 100).coerceIn(50, 200)
+        val subSize = prefs.getInt(com.shiping.shared.prefs.PrefsKeys.KEY_SUB_SIZE, 100).coerceIn(50, 200)
         if (subSize != 100) {
             l.mpv_set_property_string(handle, "sub-scale", (subSize / 100.0).toString())
         }
         // 画面比例：fit=原比例（mpv 默认，无需设置）/ crop=裁剪铺满 / stretch=拉伸
-        when (prefs.getString(DesktopPrefs.KEY_VIDEO_SCALE, "fit")) {
+        when (prefs.getString(com.shiping.shared.prefs.PrefsKeys.KEY_VIDEO_SCALE, "fit")) {
             "crop" -> l.mpv_set_property_string(handle, "panscan", "1.0")
             "stretch" -> l.mpv_set_property_string(handle, "keepaspect", "no")
         }

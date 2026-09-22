@@ -1,6 +1,5 @@
-package com.shiping.desktop.player
+﻿package com.shiping.desktop.player
 
-import com.shiping.desktop.data.prefs.DesktopPrefs
 import com.shiping.desktop.util.AppLog
 import com.sun.jna.Native
 import com.sun.jna.Pointer
@@ -23,7 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * - 原生 ShowWindow 显隐、HWND 位置/尺寸原生同步（locationOnScreen 换算）
  * 子类仅实现内核差异：native 初始化与播放控制、重挂/画布变化的迁移动作、事件驱动方式。
  */
-abstract class AbstractKernelController(protected val prefs: DesktopPrefs) : PlayerController {
+abstract class AbstractKernelController(protected val prefs: com.shiping.shared.prefs.KeyValueStore) : PlayerController {
 
     /** 日志 TAG（各内核命名，如 MpvPlayer） */
     protected abstract val logTag: String
@@ -180,7 +179,7 @@ abstract class AbstractKernelController(protected val prefs: DesktopPrefs) : Pla
 
     /** 即时切换画面比例（双写偏好保证下次起播仍生效，内核应用由子类实现） */
     final override fun setVideoScale(scale: String) {
-        prefs.put(DesktopPrefs.KEY_VIDEO_SCALE, scale)
+        prefs.put(com.shiping.shared.prefs.PrefsKeys.KEY_VIDEO_SCALE, scale)
         applyVideoScaleNow(scale)
     }
 

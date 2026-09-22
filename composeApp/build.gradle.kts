@@ -35,6 +35,26 @@ kotlin {
     jvm("desktop")
 
     sourceSets {
+        val desktopMain by getting {
+            // 捆绑原生资源（mpv/vlc/mdk）进 jar：msi/exe 安装包仅打包 jars，
+            // 安装版首次运行由 BundledNative 解压到数据目录后加载
+            resources.srcDir("app-resources")
+            dependencies {
+                implementation(compose.desktop.currentOs)
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.8.1")
+                // 探针/桌面代码编译期需要（运行时经 shared 传递提供）
+                compileOnly("com.squareup.okhttp3:okhttp:4.12.0")
+                compileOnly("com.google.code.gson:gson:2.10.1")
+            }
+        }
+        // cmpMain：Android/Desktop 共享 UI 中间源集（可见 shared jvmCommon 模型与接口，
+        // 经 AppGraph 消费数据层；iOS/Wasm Phase3 时再评估上移 commonMain）
+        val cmpMain by creating {
+            dependsOn(commonMain.get())
+        }
+        androidMain.get().dependsOn(cmpMain)
+        desktopMain.dependsOn(cmpMain)
+
         commonMain.dependencies {
             implementation(project(":shared"))
             implementation(compose.runtime)
@@ -62,18 +82,6 @@ kotlin {
             implementation("androidx.room:room-runtime:2.6.1")
             implementation("androidx.room:room-ktx:2.6.1")
             implementation("androidx.datastore:datastore-preferences:1.0.0")
-        }
-        val desktopMain by getting {
-            // 捆绑原生资源（mpv/vlc/mdk）进 jar：msi/exe 安装包仅打包 jars，
-            // 安装版首次运行由 BundledNative 解压到数据目录后加载
-            resources.srcDir("app-resources")
-            dependencies {
-                implementation(compose.desktop.currentOs)
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.8.1")
-                // 探针/桌面代码编译期需要（运行时经 shared 传递提供）
-                compileOnly("com.squareup.okhttp3:okhttp:4.12.0")
-                compileOnly("com.google.code.gson:gson:2.10.1")
-            }
         }
     }
 }

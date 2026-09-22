@@ -1,6 +1,5 @@
-package com.shiping.desktop.player
+﻿package com.shiping.desktop.player
 
-import com.shiping.desktop.data.prefs.DesktopPrefs
 import com.shiping.desktop.util.AppLog
 import com.sun.jna.Function
 import com.sun.jna.Library
@@ -51,7 +50,7 @@ class MdkCallbackPair : Structure(), Structure.ByValue {
  * 打开的播放窗口生效；硬解码开关为 mpv 页专属设置，MDK 固定硬件解码优先、
  * 自动回退软解（decoders 列表尾部为 FFDBG）。
  */
-class MdkPlayerController(prefs: DesktopPrefs) : AbstractKernelController(prefs) {
+class MdkPlayerController(prefs: com.shiping.shared.prefs.KeyValueStore) : AbstractKernelController(prefs) {
 
     companion object {
         // MDK_State
@@ -469,7 +468,7 @@ class MdkPlayerController(prefs: DesktopPrefs) : AbstractKernelController(prefs)
 
     /** 注入设置页的播放偏好：画面比例（fit=等比适应默认 / crop=裁剪铺满 / stretch=拉伸） */
     private fun applyUserSettings(table: PlayerApiTable) {
-        applyVideoScale(table, prefs.getString(DesktopPrefs.KEY_VIDEO_SCALE, "fit"))
+        applyVideoScale(table, prefs.getString(com.shiping.shared.prefs.PrefsKeys.KEY_VIDEO_SCALE, "fit"))
     }
 
     /** 画面比例应用：crop=等比外扩铺满 / stretch=无视宽高比拉伸 / fit=等比适应（mdk 默认） */
