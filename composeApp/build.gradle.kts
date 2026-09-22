@@ -6,6 +6,22 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.multiplatform")
     id("org.jetbrains.compose")
+    // Room 编译期处理（androidMain 数据栈，KSP 经 kspDebugKotlinAndroid/kspReleaseKotlinAndroid 配置）
+    id("com.google.devtools.ksp")
+}
+
+dependencies {
+    // Room 编译期处理：KMP android target 主编译的 KSP 配置（配置名 = ksp<编译任务后缀>，
+    // 运行时动态创建须字符串注册；debug/release 两个变体分别注册）
+}
+
+// KSP 配置由插件在 source set 创建后生成（kspAndroid/kspAndroidDebug 等）：延迟注册
+afterEvaluate {
+    val kspConfigs = configurations.names.filter { it.startsWith("ksp") }
+    kspConfigs.filter { it == "kspAndroid" || it == "kspAndroidDebug" || it == "kspAndroidRelease" }
+        .forEach { name ->
+            dependencies.add(name, "androidx.room:room-compiler:2.6.1")
+        }
 }
 
 kotlin {
@@ -42,6 +58,10 @@ kotlin {
             implementation("androidx.media3:media3-exoplayer-dash:1.5.1")
             implementation("androidx.media3:media3-ui:1.5.1")
             implementation("androidx.media3:media3-common:1.5.1")
+            // 持久化：Room（仓库栈）+ DataStore（KeyValueStore 实现）
+            implementation("androidx.room:room-runtime:2.6.1")
+            implementation("androidx.room:room-ktx:2.6.1")
+            implementation("androidx.datastore:datastore-preferences:1.0.0")
         }
         val desktopMain by getting {
             // 捆绑原生资源（mpv/vlc/mdk）进 jar：msi/exe 安装包仅打包 jars，

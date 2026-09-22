@@ -1,13 +1,14 @@
 package com.shiping.app.data.remote
 
-import com.shiping.app.data.model.ApiResponse
-import com.shiping.app.data.model.Vod
+import com.shiping.desktop.data.model.ApiResponse
+import com.shiping.desktop.data.model.Vod
 import retrofit2.http.GET
 import retrofit2.http.Query
 import retrofit2.http.Url
 
 /**
- * MacCMS 视频接口
+ * MacCMS 视频接口（统一使用 shared 桌面模型，与桌面仓库/映射层同型，
+ * 避免平台实体二次映射）
  */
 interface ApiService {
 
