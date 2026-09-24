@@ -16,6 +16,7 @@ import com.shiping.shared.repository.ParseSourceRepository
 import com.shiping.shared.repository.VodRepository
 import com.shiping.shared.spider.SpiderEngine
 import com.shiping.shared.prefs.KeyValueStore
+import com.shiping.shared.prefs.PrefsKeys
 
 /**
  * 视频数据仓库 Android 实现（实现 shared 共享接口）：
@@ -38,7 +39,7 @@ class AndroidVodRepository(
 
     /** 过滤切片广告（设置开关）：剔除名称/备注含「切片」的条目 */
     private fun filterSliceAds(list: List<Vod>): List<Vod> {
-        if (!prefs.getBoolean("filterSliceAd", false)) return list
+        if (!prefs.getBoolean(PrefsKeys.KEY_FILTER_SLICE_AD, false)) return list
         return list.filter { !it.vodName.contains("切片") && !it.vodRemarks.contains("切片") }
     }
 

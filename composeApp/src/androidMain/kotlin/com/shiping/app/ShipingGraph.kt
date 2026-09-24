@@ -107,7 +107,7 @@ object ShipingGraph : AppGraph {
         dataDirPath = contextRef!!.filesDir.absolutePath
         // m3u8 播放级广告过滤独立开关（KEY_FILTER_M3U8_AD），与列表过滤互不影响
         media3Kernel = Media3PlayerKernel(
-            isSliceAdFilterEnabled = { prefs.getBoolean(PrefsKeys.KEY_FILTER_M3U8_AD, false) },
+            isSliceAdFilterEnabled = { prefs.getBoolean(PrefsKeys.KEY_FILTER_M3U8_AD, true) },
         ).apply { applicationContext = contextRef!! }
     }
 }

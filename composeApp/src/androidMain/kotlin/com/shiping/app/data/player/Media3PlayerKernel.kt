@@ -66,6 +66,9 @@ class Media3PlayerKernel(
 
     private var lastHeaders: Map<String, String> = emptyMap()
 
+    /** 上次构建播放器时的广告过滤开关（开关切换后下一次起播重建数据源链生效） */
+    private var lastAdFilterEnabled: Boolean = isSliceAdFilterEnabled()
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val pollTick = object : Runnable {
@@ -117,12 +120,14 @@ class Media3PlayerKernel(
         mainHandler.post {
             try {
                 _errorText.value = null
-                // headers 变化需重建数据源工厂（ExoPlayer 工厂绑定于实例）
-                val p = if (player == null || headers != lastHeaders) {
+                // headers 或广告过滤开关变化需重建数据源工厂（ExoPlayer 工厂绑定于实例）
+                val adFilterEnabled = isSliceAdFilterEnabled()
+                val p = if (player == null || headers != lastHeaders || adFilterEnabled != lastAdFilterEnabled) {
                     player?.release()
                     val rebuilt = buildPlayer(headers)
                     player = rebuilt
                     lastHeaders = headers
+                    lastAdFilterEnabled = adFilterEnabled
                     onRebuild(rebuilt)
                     rebuilt
                 } else {

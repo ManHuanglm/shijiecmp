@@ -1380,7 +1380,7 @@ private fun FeatureSettingsPage(app: AppViewModel) {
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         PrefSwitchRow("过滤切片广告", PrefsKeys.KEY_FILTER_SLICE_AD, false)
-        PrefSwitchRow("m3u8 去广告", PrefsKeys.KEY_FILTER_M3U8_AD, false)
+        PrefSwitchRow("m3u8 去广告", PrefsKeys.KEY_FILTER_M3U8_AD, true)
         PrefSwitchRow("画中画", PrefsKeys.KEY_PIP_ENABLED, true)
         PrefSwitchRow("播放记录", PrefsKeys.KEY_PLAY_RECORD_ENABLED, true)
         PrefSwitchRow("触感提示", PrefsKeys.KEY_TOUCH_HINT, false)

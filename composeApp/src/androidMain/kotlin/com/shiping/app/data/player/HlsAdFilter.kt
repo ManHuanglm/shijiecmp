@@ -212,9 +212,12 @@ class AdFilterDataSource(private val upstream: DataSource) : DataSource {
     }
 
     override fun open(dataSpec: DataSpec): Long {
-        val isPlaylist = dataSpec.uri.path
-            ?.substringBefore('?')
-            ?.endsWith(".m3u8") == true
+        // 播放列表命中：path 后缀 .m3u8，或经本地代理转发（/hdr、/proxy）query 携带
+        // .m3u8 目标地址（切片 URL query 带 .m3u8 极罕见，误判仅多一次整体读入，
+        // HlsAdFilter 对非播放列表内容原样返回，无副作用）
+        val isPlaylist = dataSpec.uri.toString()
+            .substringBefore("#").lowercase()
+            .contains(".m3u8")
 
         delegate = upstream
         if (!isPlaylist) {
