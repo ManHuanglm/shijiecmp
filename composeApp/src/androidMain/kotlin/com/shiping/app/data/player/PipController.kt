@@ -4,6 +4,9 @@ import android.app.Activity
 import android.os.Build
 import android.util.Rational
 import androidx.core.math.MathUtils
+import com.shiping.app.ShipingGraph
+import com.shiping.app.util.AppLog
+import com.shiping.shared.prefs.PrefsKeys
 import com.shiping.shared.player.PlayerKernel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +19,8 @@ import kotlin.math.roundToInt
  * - isInPip 供控制层隐藏覆盖 UI（小窗中只留画面）
  */
 object PipController {
+
+    private const val TAG = "PiP"
 
     /** 系统允许的宽高比范围（2.39:1 ~ 1:2.39） */
     private const val MAX_RATIO = 2.39f
@@ -42,19 +47,24 @@ object PipController {
     /** Activity PiP 模式变化回调转发 */
     fun onPipModeChanged(inPip: Boolean) {
         _isInPip.value = inPip
+        if (!inPip) AppLog.i(TAG, "已退出画中画")
     }
 
-    /** 尝试进入画中画：Android O+ 且内核正在播放；失败返回 false（正常走后台） */
+    /** 尝试进入画中画：开关开启 + Android O+ + 内核正在播放；失败返回 false（正常走后台） */
     fun tryEnterPip(activity: Activity): Boolean {
+        val enabled = ShipingGraph.prefs.getBoolean(PrefsKeys.KEY_PIP_ENABLED, true)
+        if (!enabled) return false
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         val kernel = activeKernel ?: return false
         if (!kernel.isPlaying.value) return false
         val aspect = buildAspectRatio(kernel.videoWidth.value, kernel.videoHeight.value)
-        return runCatching {
+        val entered = runCatching {
             activity.enterPictureInPictureMode(
                 android.app.PictureInPictureParams.Builder().setAspectRatio(aspect).build(),
             )
         }.getOrDefault(false)
+        if (entered) AppLog.i(TAG, "已进入画中画") else AppLog.w(TAG, "进入画中画失败")
+        return entered
     }
 
     /** 视频宽高比（越界截断到系统允许区间；未知尺寸回退 16:9） */

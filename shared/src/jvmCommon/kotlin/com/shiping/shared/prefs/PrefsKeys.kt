@@ -34,6 +34,9 @@ object PrefsKeys {
     /** m3u8 播放级广告切片过滤（仅 Android media3 播放生效） */
     const val KEY_FILTER_M3U8_AD = "filterM3u8Ad"
 
+    /** 播放中离开应用自动进画中画（Android 专属，默认开启） */
+    const val KEY_PIP_ENABLED = "pipEnabled"
+
     /** 播放记录开关（关闭后不保存播放进度） */
     const val KEY_PLAY_RECORD_ENABLED = "playRecordEnabled"
 
