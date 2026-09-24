@@ -9,6 +9,16 @@
     public <methods>;
 }
 
+# ===== 爬虫 jar 运行时依赖库（FQN 冻结）=====
+# payload 爬虫 jar 打包时不含 okhttp/gson，运行时经 DexClassLoader（parent-first）
+# 按原始类名解析宿主提供类；R8 改名将导致 NoClassDefFoundError 启动闪退
+-keep class okhttp3.** { *; }
+-dontwarn okhttp3.**
+-keep class okio.** { *; }
+-dontwarn okio.**
+-keep class com.google.gson.** { *; }
+-dontwarn com.google.gson.**
+
 # ===== Gson 模型（@SerializedName 字段名即 JSON 契约，禁止混淆字段）=====
 # shared jvmCommon TVBox/CMS 模型（ApiResponse/Vod/Category 等）
 -keep class com.shiping.desktop.data.model.** { *; }

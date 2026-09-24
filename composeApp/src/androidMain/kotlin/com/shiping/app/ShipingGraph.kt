@@ -18,6 +18,7 @@ import com.shiping.shared.graph.AppGraph
 import com.shiping.shared.graph.ImportResult
 import com.shiping.shared.graph.TvBoxImporter
 import com.shiping.shared.prefs.KeyValueStore
+import com.shiping.shared.prefs.PrefsKeys
 import com.shiping.shared.repository.ApiSourceRepository
 import com.shiping.shared.repository.FavoriteRepository
 import com.shiping.shared.repository.ParseSourceRepository
@@ -104,6 +105,9 @@ object ShipingGraph : AppGraph {
         contextRef = context.applicationContext
         prefs = DataStoreKeyValueStore(contextRef!!, appScope)
         dataDirPath = contextRef!!.filesDir.absolutePath
-        media3Kernel = Media3PlayerKernel().apply { applicationContext = contextRef!! }
+        // m3u8 播放级广告过滤独立开关（KEY_FILTER_M3U8_AD），与列表过滤互不影响
+        media3Kernel = Media3PlayerKernel(
+            isSliceAdFilterEnabled = { prefs.getBoolean(PrefsKeys.KEY_FILTER_M3U8_AD, false) },
+        ).apply { applicationContext = contextRef!! }
     }
 }

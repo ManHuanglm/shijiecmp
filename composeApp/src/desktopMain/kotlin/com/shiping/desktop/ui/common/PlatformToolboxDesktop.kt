@@ -53,6 +53,15 @@ actual fun snapshotLogEntries(): List<LogEntryView> =
 /** 清空桌面日志缓冲 */
 actual fun clearLogs() = AppLog.clear()
 
+/** 桌面不支持剧集下载（Android 专属：导出系统相册） */
+actual val isEpisodeDownloadSupported: Boolean = false
+
+/** 桌面无下载器：返回 null 由调用方提示 */
+actual suspend fun submitEpisodeDownload(request: EpisodeDownloadRequest): String? = null
+
+/** 桌面不支持扫码导入（无摄像头） */
+actual fun launchConfigScanner(): Boolean = false
+
 /** 自定义存储路径页（桌面）：目录选择覆盖持久化，重启生效 */
 @Composable
 actual fun StoragePathPageContent(app: AppViewModel) {

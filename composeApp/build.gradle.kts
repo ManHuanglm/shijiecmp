@@ -66,12 +66,16 @@ kotlin {
         androidMain.dependencies {
             implementation("androidx.core:core-ktx:1.12.0")
             implementation("androidx.activity:activity-compose:1.8.2")
+            // 扫码页协程生命周期作用域（lifecycleScope）
+            implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
             // 爬虫运行时（jar 下载）与 CMS 接口（Retrofit/ApiService）
             implementation("com.squareup.okhttp3:okhttp:4.12.0")
             // catvod 桥 OkDns.java 编译需要（shared 为 implementation 不传递）
             implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
             implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+            // Android 代理路由（AndroidProxyRoutes）实现 SpiderProxyBridge 签名需 NanoHTTPD 类型
+            implementation("org.nanohttpd:nanohttpd:2.3.1")
             implementation("com.squareup.retrofit2:retrofit:2.9.0")
             implementation("com.squareup.retrofit2:converter-gson:2.9.0")
             // 播放内核（M4）：media3 ExoPlayer + HLS/DASH
@@ -80,6 +84,14 @@ kotlin {
             implementation("androidx.media3:media3-exoplayer-dash:1.5.1")
             implementation("androidx.media3:media3-ui:1.5.1")
             implementation("androidx.media3:media3-common:1.5.1")
+            // 下载导出（M5）：Transformer 把 HLS 转封装为 MP4（InAppMuxer 需 muxer）
+            implementation("androidx.media3:media3-transformer:1.5.1")
+            implementation("androidx.media3:media3-muxer:1.5.1")
+            // 扫码（M5）：CameraX 取景 + zxing 解码 TVBox 配置二维码
+            implementation("androidx.camera:camera-camera2:1.3.4")
+            implementation("androidx.camera:camera-lifecycle:1.3.4")
+            implementation("androidx.camera:camera-view:1.3.4")
+            implementation("com.google.zxing:core:3.5.3")
             // 持久化：Room（仓库栈）+ DataStore（KeyValueStore 实现）
             implementation("androidx.room:room-runtime:2.6.1")
             implementation("androidx.room:room-ktx:2.6.1")

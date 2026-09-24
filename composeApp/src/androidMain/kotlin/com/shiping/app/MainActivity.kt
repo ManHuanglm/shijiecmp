@@ -1,5 +1,6 @@
 package com.shiping.app
 
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -26,9 +27,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.shiping.app.data.player.PipController
 import com.shiping.desktop.ui.AppViewModel
 import com.shiping.desktop.ui.DetailScreen
 import com.shiping.desktop.ui.DirectPlaybackHostAndroid
+import com.shiping.desktop.ui.DownloadsScreen
 import com.shiping.desktop.ui.LocalAppGraph
 import com.shiping.desktop.ui.Screen
 import com.shiping.desktop.ui.SettingsScreen
@@ -42,6 +45,7 @@ import com.shiping.desktop.ui.theme.ShipingTheme
 /**
  * Android 入口：宿主装配（DirectPlaybackHost + LocalAppGraph）+ 底部 Tab 导航。
  * 复用 cmpMain 全部跨端屏（Home/Search/History/Favorite/Settings/Detail/Tv）。
+ * 播放中离开应用自动进入画中画（PipController）。
  */
 class MainActivity : ComponentActivity() {
 
@@ -58,6 +62,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // 页内播放中（Detail/Tv 挂载内核）离开应用时进画中画；无播放则不响应
+        PipController.tryEnterPip(this)
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        PipController.onPipModeChanged(isInPictureInPictureMode)
     }
 }
 
@@ -79,6 +94,7 @@ fun AndroidRoot(app: AppViewModel) {
     when (val top = navStack.last()) {
         is Screen.Detail -> DetailScreen(top, app)
         is Screen.Tv -> TvScreen(app)
+        is Screen.Downloads -> DownloadsScreen(app)
         else -> MainTabs(app, top)
     }
 }

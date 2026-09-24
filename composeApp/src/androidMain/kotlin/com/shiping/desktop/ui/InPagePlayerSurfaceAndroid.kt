@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -19,6 +20,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.shiping.app.ShipingApp
 import com.shiping.app.data.player.Media3PlayerKernel
+import com.shiping.app.data.player.PipController
 import com.shiping.shared.graph.AppGraph
 import com.shiping.shared.player.PlayerKernel
 import kotlinx.coroutines.CoroutineScope
@@ -52,9 +54,15 @@ actual fun InPagePlayerSurface(
     val media3 = kernel as? Media3PlayerKernel
     // 组合作用域持有 PlayerView 引用：视图销毁时解绑，防悬挂引用（内核释放由页面编排负责）
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
+    // PiP 候选内核挂载/卸载（播放中 onUserLeaveHint 自动进画中画）+ 小窗态隐藏控制层
     DisposableEffect(media3) {
-        onDispose { playerView?.player = null }
+        media3?.let(PipController::attachKernel)
+        onDispose {
+            media3?.let(PipController::detachKernel)
+            playerView?.player = null
+        }
     }
+    val inPip by PipController.isInPip.collectAsState()
     val composeScope = rememberCoroutineScope()
     val actions = remember(kernel, app) { AndroidInPageActions(kernel, app, composeScope) }
     Box(modifier = modifier.background(Color.Black)) {
@@ -74,8 +82,11 @@ actual fun InPagePlayerSurface(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        AndroidInPageControls(kernel = kernel, app = app, actions = actions)
-        AndroidPlayerSheets(app = app, actions = actions)
+        // 小窗态只留画面：控制层/面板全部隐藏（isInPip 由 Activity 回调驱动）
+        if (!inPip) {
+            AndroidInPageControls(kernel = kernel, app = app, actions = actions)
+            AndroidPlayerSheets(app = app, actions = actions)
+        }
     }
     DisposableEffect(actions) {
         app.registerInPageOverlay(actions)

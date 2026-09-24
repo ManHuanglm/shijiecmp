@@ -16,7 +16,7 @@ import com.shiping.app.data.model.TvSourceEntity
 
 @Database(
     entities = [ApiSourceEntity::class, ParseSourceEntity::class, DownloadEntity::class, PlayHistoryEntity::class, TvSourceEntity::class, FavoriteEntity::class],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -88,6 +88,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v10→v11：downloads 新增 headersJson 字段，导出时注入 UA/Referer 防盗链头 */
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `downloads` ADD COLUMN `headersJson` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return instance ?: synchronized(this) {
                 instance ?: buildDatabase(context.applicationContext).also { instance = it }
@@ -104,7 +111,7 @@ abstract class AppDatabase : RoomDatabase() {
             if (BuildConfig.DEBUG) {
                 builder.fallbackToDestructiveMigration()
             }
-            builder.addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+            builder.addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
             return builder.build()
         }
     }

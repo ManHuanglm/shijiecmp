@@ -65,9 +65,13 @@ import com.shiping.desktop.data.model.FavoriteEntity
 import com.shiping.desktop.data.model.PlayHistoryEntity
 import com.shiping.desktop.data.model.Vod
 import com.shiping.desktop.player.IntroMark
+import com.shiping.desktop.player.isDirectStreamUrl
 import com.shiping.desktop.ui.common.ErrorView
+import com.shiping.desktop.ui.common.EpisodeDownloadRequest
 import com.shiping.desktop.ui.common.LoadingView
 import com.shiping.desktop.ui.common.NetImage
+import com.shiping.desktop.ui.common.isEpisodeDownloadSupported
+import com.shiping.desktop.ui.common.submitEpisodeDownload
 import com.shiping.shared.graph.AppGraph
 import com.shiping.shared.prefs.PrefsKeys
 import com.shiping.shared.player.PlayerKernel
@@ -152,6 +156,43 @@ class DetailViewModel(
     fun play(sourceIndex: Int, episodeIndex: Int, app: AppViewModel) {
         val vod = _uiState.value.vod ?: return
         app.playEpisode(vod, target.sourceUrl, sourceIndex, episodeIndex)
+    }
+
+    /**
+     * 下载指定集：解析直链（复用播发链路 resolvePlayUrl）后交平台下载器导出相册。
+     * 网页解析流（parse=1 且非直链）无法离线导出，明确提示。
+     */
+    fun downloadEpisode(sourceIndex: Int, episodeIndex: Int, app: AppViewModel) {
+        if (!isEpisodeDownloadSupported) {
+            app.showMessage("当前平台不支持下载")
+            return
+        }
+        val vod = _uiState.value.vod ?: return
+        val episode = vod.parsePlaySources()
+            .getOrNull(sourceIndex)?.episodes?.getOrNull(episodeIndex) ?: return
+        val episodeName = episode.name.ifBlank { "第${episodeIndex + 1}集" }
+        scope.launch {
+            app.showMessage("「$episodeName」解析下载地址中…")
+            runCatching {
+                val info = graph.vodRepository.resolvePlayUrl(target.sourceUrl, episode.url)
+                when {
+                    info != null && info.parse == 1 && !isDirectStreamUrl(info.url) ->
+                        "该集为网页解析流，暂不支持下载"
+                    else -> submitEpisodeDownload(
+                        EpisodeDownloadRequest(
+                            vodId = vod.vodId,
+                            sourceUrl = target.sourceUrl,
+                            title = vod.vodName.ifBlank { target.title },
+                            vodPic = vod.safePic,
+                            episodeName = episodeName,
+                            playUrl = info?.url ?: episode.url,
+                            headers = info?.headers ?: emptyMap(),
+                        ),
+                    ) ?: "当前平台不支持下载"
+                }
+            }.onSuccess { message -> app.showMessage(message) }
+                .onFailure { app.showMessage("下载解析失败：${it.message ?: "未知错误"}") }
+        }
     }
 }
 
@@ -571,10 +612,7 @@ private fun DetailPlayMode(
         onKernelSelected = { id -> app.switchKernel(id) },
         introMark = IntroMark.Mark(session.vodId, session.sourceUrl, session.episodeName)
             .takeIf { session.vodId != 0 && session.sourceUrl.isNotBlank() },
-        onDownloadEpisode = { index ->
-            val name = session.episodes.getOrNull(index) ?: "第${index + 1}集"
-            app.showMessage("「$name」下载功能开发中，敬请期待")
-        },
+        onDownloadEpisode = { index -> viewModel.downloadEpisode(session.currentSourceIndex, index, app) },
     )
 
     // 选集：页内统一走控制层重量级弹出，避免 Compose 弹窗被视频面遮挡

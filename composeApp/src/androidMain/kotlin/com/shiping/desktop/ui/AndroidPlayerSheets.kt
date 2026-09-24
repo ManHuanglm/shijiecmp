@@ -33,11 +33,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -84,19 +82,49 @@ internal fun AndroidPlayerSheets(
     val config = actions.config ?: return
     val sheet = actions.sheet
     if (sheet != null) {
-        ModalBottomSheet(
+        // 自绘底部面板：ModalBottomSheet 跨 window 渲染在 PlayerView(SurfaceView) 页面
+        // 存在内容 alpha 异常（面板文字变浅不可读），改用 Popup（同频道侧栏模式）
+        val scrimInteraction = remember { MutableInteractionSource() }
+        Popup(
+            alignment = Alignment.BottomCenter,
             onDismissRequest = { actions.sheet = null },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = Color.White,
+            properties = PopupProperties(focusable = true),
         ) {
-            when (sheet) {
-                SheetKind.EPISODE -> EpisodeSheet(config, actions)
-                SheetKind.SOURCE -> SourceSheet(config, actions)
-                SheetKind.QUALITY -> QualitySheet(config, actions)
-                SheetKind.KERNEL -> KernelSheet(config, actions)
-                SheetKind.TIMER -> TimerSheet(actions)
-                SheetKind.MULTI_THREAD -> MultiThreadSheet(app, actions)
-                SheetKind.SHARE -> ShareSheet(config, actions)
+            Box(modifier = Modifier.fillMaxSize()) {
+                // 点击遮罩关闭面板
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.4f))
+                        .clickable(interactionSource = scrimInteraction, indication = null) {
+                            actions.sheet = null
+                        },
+                )
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(Color.White, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                        .padding(top = 10.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .width(36.dp)
+                            .height(4.dp)
+                            .background(Color(0xFF, 0xDD, 0xDD, 0xDD), RoundedCornerShape(2.dp)),
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    when (sheet) {
+                        SheetKind.EPISODE -> EpisodeSheet(config, actions)
+                        SheetKind.SOURCE -> SourceSheet(config, actions)
+                        SheetKind.QUALITY -> QualitySheet(config, actions)
+                        SheetKind.KERNEL -> KernelSheet(config, actions)
+                        SheetKind.TIMER -> TimerSheet(actions)
+                        SheetKind.MULTI_THREAD -> MultiThreadSheet(app, actions)
+                        SheetKind.SHARE -> ShareSheet(config, actions)
+                    }
+                }
             }
         }
     }

@@ -31,6 +31,8 @@ data class DownloadEntity(
     val speedBytesPerSecond: Long = 0L,
     /** 失败原因 */
     val errorMessage: String? = null,
+    /** 播放请求头 JSON（UA/Referer 防盗链），导出时注入 */
+    val headersJson: String = "",
     /** 创建时间戳 */
     val createdAt: Long = System.currentTimeMillis(),
     /** 完成时间戳 */

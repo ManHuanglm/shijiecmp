@@ -78,8 +78,9 @@ object SpiderRuntime : SpiderEngine {
                     SpiderProxyPort.current = port
                 },
                 dispatchProxy = { params -> proxyInvoke(params) },
-                // Android 端无 /hdr 扩展路由（直链 header 由 media3 内核属性注入）
-                extraRouteHandler = null,
+                // /hdr 直链 header 注入路由（对齐桌面）：Cookie 等超出 UA/Referer 的
+                // header 经 PlaybackUrlResolver 包装为本地代理地址流式转发
+                extraRouteHandler = { session -> AndroidProxyRoutes.handle(session) },
                 logger = { level, tag, message ->
                     when (level) {
                         'w' -> Log.w(tag, message)

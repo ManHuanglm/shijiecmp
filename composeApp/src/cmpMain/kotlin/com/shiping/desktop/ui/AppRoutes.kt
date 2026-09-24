@@ -16,6 +16,9 @@ sealed class Screen {
     data object History : Screen()
     data object Settings : Screen()
 
+    /** 下载管理（Android 专属：任务队列与本地导出文件；桌面不导航到该页） */
+    data object Downloads : Screen()
+
     /** 详情页：vodId + 源地址（跨源打开用），title/pic 为列表页已知信息（详情未回前先显示） */
     data class Detail(
         val vodId: Int,

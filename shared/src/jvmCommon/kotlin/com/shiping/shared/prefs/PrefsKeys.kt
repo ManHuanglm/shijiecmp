@@ -31,6 +31,9 @@ object PrefsKeys {
     /** 过滤列表中名称/备注含「切片」的条目 */
     const val KEY_FILTER_SLICE_AD = "filterSliceAd"
 
+    /** m3u8 播放级广告切片过滤（仅 Android media3 播放生效） */
+    const val KEY_FILTER_M3U8_AD = "filterM3u8Ad"
+
     /** 播放记录开关（关闭后不保存播放进度） */
     const val KEY_PLAY_RECORD_ENABLED = "playRecordEnabled"
 

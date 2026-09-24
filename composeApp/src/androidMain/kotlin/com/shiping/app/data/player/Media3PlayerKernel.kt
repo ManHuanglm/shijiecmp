@@ -6,6 +6,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.C
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -24,6 +25,8 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class Media3PlayerKernel(
     private val onRebuild: (ExoPlayer) -> Unit = {},
+    /** m3u8 播放级广告过滤开关（ShipingGraph 注入，构建播放器时读取一次） */
+    private val isSliceAdFilterEnabled: () -> Boolean = { false },
 ) : PlayerKernel {
 
     private val _isPlaying = MutableStateFlow(false)
@@ -88,10 +91,19 @@ class Media3PlayerKernel(
             .setReadTimeoutMs(30_000)
         headers.entries.firstOrNull { it.key.equals("User-Agent", true) }
             ?.let { httpFactory.setUserAgent(it.value) }
+        // 其余 header（Referer 防盗链等）经默认请求属性注入（对齐桌面 media options 语义）
+        val extraHeaders = headers.filterKeys { !it.equals("User-Agent", true) }
+        if (extraHeaders.isNotEmpty()) httpFactory.setDefaultRequestProperties(extraHeaders)
+        // m3u8 播放级广告过滤：开关开启时包一层过滤数据源（对齐源项目接线）
+        val baseFactory: DataSource.Factory =
+            DefaultDataSource.Factory(applicationContext, httpFactory)
+        val dataSourceFactory = if (isSliceAdFilterEnabled()) {
+            AdFilterDataSourceFactory(baseFactory)
+        } else {
+            baseFactory
+        }
         val player = ExoPlayer.Builder(applicationContext)
-            .setMediaSourceFactory(
-                DefaultMediaSourceFactory(DefaultDataSource.Factory(applicationContext, httpFactory)),
-            )
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .build()
         player.addListener(listener)
         return player

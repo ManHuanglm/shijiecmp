@@ -2,6 +2,7 @@ package com.shiping.app
 
 import android.app.Application
 import android.content.Context
+import com.shiping.app.data.download.DownloadEngine
 import com.shiping.app.data.spider.SpiderRuntime
 import com.shiping.app.util.AppLog
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +38,8 @@ class ShipingApp : Application() {
         SpiderRuntime.init(this)
         // 依赖容器：DataStore 偏好 + Room 仓库栈 + media3 内核
         ShipingGraph.init(this)
+        // 下载引擎：清理上次中断任务并自动恢复队列
+        DownloadEngine.init()
         // 启动预热：默认 API 源/直播源插入 + 各仓库刷新（解析源无默认项，对齐桌面启动行为）
         appScope.launch { runCatching { ShipingGraph.warmUp() } }
     }

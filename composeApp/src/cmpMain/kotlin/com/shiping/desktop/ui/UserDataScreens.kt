@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +35,7 @@ import com.shiping.desktop.data.model.PlayHistoryEntity
 import com.shiping.desktop.ui.common.ConfirmDialog
 import com.shiping.desktop.ui.common.EmptyView
 import com.shiping.desktop.ui.common.VideoCard
+import com.shiping.desktop.ui.common.isEpisodeDownloadSupported
 import kotlinx.coroutines.launch
 
 /** 播放历史页：卡片网格 + 单删/清空，点击继续播放 */
@@ -49,6 +51,11 @@ fun HistoryScreen(app: AppViewModel) {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("播放历史", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.weight(1f))
+            if (isEpisodeDownloadSupported) {
+                IconButton(onClick = { app.push(Screen.Downloads) }) {
+                    Icon(Icons.Filled.Download, contentDescription = "下载管理")
+                }
+            }
             if (history.isNotEmpty()) {
                 TextButton(onClick = { pendingClear = true }) { Text("清空") }
             }

@@ -113,6 +113,7 @@ import com.shiping.desktop.ui.common.TextInputRow
 import com.shiping.desktop.ui.common.StoragePathPageContent
 import com.shiping.desktop.ui.common.clearLogs
 import com.shiping.desktop.ui.common.copyTextToClipboard
+import com.shiping.desktop.ui.common.launchConfigScanner
 import com.shiping.desktop.ui.common.pickImportTextFile
 import com.shiping.desktop.ui.common.snapshotLogEntries
 import com.shiping.desktop.ui.theme.FixedPalette
@@ -546,7 +547,7 @@ private fun SubscribePage(app: AppViewModel) {
             placeholder = "https://.../config.json",
             modifier = Modifier.fillMaxWidth(),
         )
-        Row {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = {
                     if (configUrl.isBlank()) return@Button
@@ -554,6 +555,13 @@ private fun SubscribePage(app: AppViewModel) {
                 },
                 enabled = configUrl.isNotBlank() && !importing,
             ) { Text(if (importing) "正在后台导入…" else "拉取导入") }
+            // 扫码导入（Android 摄像头识别 TVBox 配置二维码；桌面提示不支持）
+            OutlinedButton(
+                onClick = {
+                    if (!launchConfigScanner()) app.showMessage("当前平台不支持扫码导入")
+                },
+                enabled = !importing,
+            ) { Text("扫码导入") }
         }
         Text("内置订阅源（点击直接导入）", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         FlowRow(
@@ -1372,6 +1380,7 @@ private fun FeatureSettingsPage(app: AppViewModel) {
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         PrefSwitchRow("过滤切片广告", PrefsKeys.KEY_FILTER_SLICE_AD, false)
+        PrefSwitchRow("m3u8 去广告", PrefsKeys.KEY_FILTER_M3U8_AD, false)
         PrefSwitchRow("播放记录", PrefsKeys.KEY_PLAY_RECORD_ENABLED, true)
         PrefSwitchRow("触感提示", PrefsKeys.KEY_TOUCH_HINT, false)
         SettingsRow("代理", proxy.ifBlank { "未启用" }, onClick = { showProxy = true })
