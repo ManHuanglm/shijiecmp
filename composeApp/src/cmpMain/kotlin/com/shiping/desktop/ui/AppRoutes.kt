@@ -16,6 +16,9 @@ sealed class Screen {
     data object History : Screen()
     data object Settings : Screen()
 
+    /** 「我的」合并页（Android 底部 Tab：收藏+历史页签；桌面不导航到该页） */
+    data object Mine : Screen()
+
     /** 下载管理（Android 专属：任务队列与本地导出文件；桌面不导航到该页） */
     data object Downloads : Screen()
 

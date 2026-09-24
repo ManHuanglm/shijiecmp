@@ -3,6 +3,7 @@ package com.shiping.app.data.player
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.C
@@ -130,7 +131,14 @@ class Media3PlayerKernel(
                 _timeMs.value = 0
                 _durationMs.value = 0
                 _isBuffering.value = true
-                p.setMediaItem(MediaItem.fromUri(url))
+                // URL 全文含 .m3u8（含 query/代理携带，如 /proxy?do=m3u8&url=...）时显式声明
+                // HLS mimeType：无后缀地址按扩展名推断会被误判为 progressive 而拒播
+                val mediaItem = if (url.substringBefore("#").lowercase().contains(".m3u8")) {
+                    MediaItem.Builder().setUri(url).setMimeType(MimeTypes.APPLICATION_M3U8).build()
+                } else {
+                    MediaItem.fromUri(url)
+                }
+                p.setMediaItem(mediaItem)
                 p.prepare()
                 if (startMs > 0) p.seekTo(startMs)
                 p.playWhenReady = true

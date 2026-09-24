@@ -132,9 +132,29 @@ class AppViewModel(
             runCatching {
                 val spiderInfo = graph.vodRepository.resolvePlayUrl(sourceUrl, episode.url)
                 when {
-                    // parse=1 且非直链：网页解析场景桌面无 WebView，明确提示
+                    // parse=1 且非直链：网页解析场景。Android 走 WebView 嗅探真实直链，
+                    // 桌面无 WebView 提示更换线路
                     spiderInfo != null && spiderInfo.parse == 1 && !isDirectStreamUrl(spiderInfo.url) -> {
-                        showMessage("桌面版暂不支持网页解析播放该集（parse=1）")
+                        if (supportsWebSniffing) {
+                            val fallback = episode.url.takeIf { it.isNotBlank() && it != spiderInfo.url }
+                            val sniffed = sniffParsePlayUrl(spiderInfo.url, fallback, spiderInfo.headers)
+                            if (sniffed != null) {
+                                startPlayback(
+                                    sniffed.url,
+                                    sniffed.headers,
+                                    vod,
+                                    sourceUrl,
+                                    sourceIndex,
+                                    episodeIndex,
+                                    episode,
+                                    spiderInfo,
+                                )
+                            } else {
+                                showMessage("网页解析失败：未嗅探到播放地址，请更换线路")
+                            }
+                        } else {
+                            showMessage("暂不支持网页解析播放该集（parse=1），请更换线路")
+                        }
                     }
                     spiderInfo != null -> startPlayback(
                         spiderInfo.url,

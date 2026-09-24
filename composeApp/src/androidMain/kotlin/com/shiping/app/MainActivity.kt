@@ -8,11 +8,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -33,12 +32,10 @@ import com.shiping.desktop.ui.DetailScreen
 import com.shiping.desktop.ui.DirectPlaybackHostAndroid
 import com.shiping.desktop.ui.DownloadsScreen
 import com.shiping.desktop.ui.LocalAppGraph
+import com.shiping.desktop.ui.MineScreen
 import com.shiping.desktop.ui.Screen
 import com.shiping.desktop.ui.SettingsScreen
-import com.shiping.desktop.ui.FavoriteScreen
 import com.shiping.desktop.ui.HomeScreen
-import com.shiping.desktop.ui.HistoryScreen
-import com.shiping.desktop.ui.SearchScreen
 import com.shiping.desktop.ui.TvScreen
 import com.shiping.desktop.ui.theme.ShipingTheme
 
@@ -81,19 +78,17 @@ private data class TabItem(val screen: Screen, val label: String, val icon: Imag
 
 private val tabs = listOf(
     TabItem(Screen.Home, "首页", Icons.Filled.Home),
-    TabItem(Screen.Search, "搜索", Icons.Filled.Search),
-    TabItem(Screen.Favorites, "收藏", Icons.Filled.Star),
-    TabItem(Screen.History, "历史", Icons.Filled.History),
+    TabItem(Screen.Tv, "直播", Icons.Filled.LiveTv),
+    TabItem(Screen.Mine, "我的", Icons.Filled.Person),
     TabItem(Screen.Settings, "设置", Icons.Filled.Settings),
 )
 
-/** Android 根导航：栈顶为详情/直播时显示对应页，否则主 Tab 界面 */
+/** Android 根导航：栈顶为详情/下载时显示对应页，否则主 Tab 界面 */
 @Composable
 fun AndroidRoot(app: AppViewModel) {
     val navStack by app.navStack.collectAsState()
     when (val top = navStack.last()) {
         is Screen.Detail -> DetailScreen(top, app)
-        is Screen.Tv -> TvScreen(app)
         is Screen.Downloads -> DownloadsScreen(app)
         else -> MainTabs(app, top)
     }
@@ -119,9 +114,8 @@ private fun MainTabs(app: AppViewModel, top: Screen) {
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             when (top) {
                 is Screen.Home -> HomeScreen(app)
-                is Screen.Search -> SearchScreen(app)
-                is Screen.Favorites -> FavoriteScreen(app)
-                is Screen.History -> HistoryScreen(app)
+                is Screen.Tv -> TvScreen(app)
+                is Screen.Mine -> MineScreen(app)
                 is Screen.Settings -> SettingsScreen(app)
                 else -> Unit
             }

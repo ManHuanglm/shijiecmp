@@ -447,94 +447,101 @@ private fun TvPlayMode(
                 }
             }
         }
-        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            // 左：16:9 播放器（全屏铺满）+ 下方居中 全屏/收藏
-            Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                    // 16:9 固定比例：宽度优先，可用高度不足时按高反推宽度（水平居中）
-                    val fitHeight = maxWidth * (9f / 16f)
-                    val fits = fitHeight <= maxHeight
-                    val boxWidth = if (fits) maxWidth else maxHeight * (16f / 9f)
-                    val boxHeight = if (fits) fitHeight else maxHeight
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(if (fullscreen) Color.Black else Color.Transparent),
-                        contentAlignment = Alignment.TopCenter,
-                    ) {
-                        // 全屏/非全屏共用同一播放区槽位，切换不重建视频面（防 wid 重挂）
-                        InPagePlayerSurface(
-                            kernel = kernel,
-                            app = app,
-                            scope = PagePlayerScope.TV,
-                            config = InPagePlayerConfig(
-                                title = displayTitle,
-                                onBack = onBack,
-                                channelPanel = channelPanelSpec,
-                                showPlayerSettings = true,
-                                kernelId = kernelId,
-                                onKernelSelected = { id -> app.switchKernel(id) },
-                            ),
-                            modifier = if (fullscreen) {
-                                Modifier.fillMaxSize()
-                            } else {
-                                Modifier.size(boxWidth, boxHeight)
-                            },
-                            onActionsReady = { tvActions = it },
-                        )
-                    }
-                }
-                // 播放器下方居中：全屏 + 收藏
-                if (!fullscreen) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = { app.toggleTvFullscreen() }) {
-                            Icon(Icons.Filled.Fullscreen, contentDescription = "全屏")
-                        }
-                        IconButton(onClick = { onToggleFavorite(channel) }) {
-                            Icon(
-                                imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                                contentDescription = "收藏",
-                                tint = if (isFavorite) {
-                                    MaterialTheme.colorScheme.primary
+        // 播放态三列（播放器 + 中竖排 Tab + 右频道列表）仅宽屏展示；
+        // 窄屏（手机竖屏）只留播放器，切台走控制层频道侧栏（▦）
+        BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            val showSideColumns = maxWidth >= WIDE_LAYOUT_MIN_WIDTH
+            Row(modifier = Modifier.fillMaxSize()) {
+                // 左：16:9 播放器（全屏铺满）+ 下方居中 全屏/收藏
+                Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        // 16:9 固定比例：宽度优先，可用高度不足时按高反推宽度（水平居中）
+                        val fitHeight = maxWidth * (9f / 16f)
+                        val fits = fitHeight <= maxHeight
+                        val boxWidth = if (fits) maxWidth else maxHeight * (16f / 9f)
+                        val boxHeight = if (fits) fitHeight else maxHeight
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(if (fullscreen) Color.Black else Color.Transparent),
+                            contentAlignment = Alignment.TopCenter,
+                        ) {
+                            // 全屏/非全屏共用同一播放区槽位，切换不重建视频面（防 wid 重挂）
+                            InPagePlayerSurface(
+                                kernel = kernel,
+                                app = app,
+                                scope = PagePlayerScope.TV,
+                                config = InPagePlayerConfig(
+                                    title = displayTitle,
+                                    onBack = onBack,
+                                    channelPanel = channelPanelSpec,
+                                    showPlayerSettings = true,
+                                    kernelId = kernelId,
+                                    onKernelSelected = { id -> app.switchKernel(id) },
+                                ),
+                                modifier = if (fullscreen) {
+                                    Modifier.fillMaxSize()
                                 } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                    Modifier.size(boxWidth, boxHeight)
                                 },
+                                onActionsReady = { tvActions = it },
                             )
                         }
                     }
+                    // 播放器下方居中：全屏 + 收藏
+                    if (!fullscreen) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(onClick = { app.toggleTvFullscreen() }) {
+                                Icon(Icons.Filled.Fullscreen, contentDescription = "全屏")
+                            }
+                            IconButton(onClick = { onToggleFavorite(channel) }) {
+                                Icon(
+                                    imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                    contentDescription = "收藏",
+                                    tint = if (isFavorite) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                            }
+                        }
+                    }
                 }
-            }
-            // 中：竖排 Tab（收藏/更新时间/分组）
-            if (!fullscreen) {
-                TvRailColumn(
-                    groupNames = groups.map { it.name },
-                    selectedIndex = railTabIndex,
-                    onSelect = onSelectRailTab,
-                    modifier = Modifier.width(120.dp).fillMaxHeight(),
-                )
-                // 右：频道卡片列表
-                LazyColumn(
-                    modifier = Modifier.width(300.dp).fillMaxHeight(),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(channels, key = { it.favoriteKey }) { item ->
-                        TvPlayChannelCard(
-                            channel = item,
-                            selected = item.favoriteKey == channel.favoriteKey,
-                            onPlay = { onPlayChannel(item, 0) },
-                            onSelectLine = { line -> onPlayChannel(item, line) },
-                        )
+                // 中：竖排 Tab（收藏/更新时间/分组）+ 右：频道卡片列表（窄屏隐藏）
+                if (!fullscreen && showSideColumns) {
+                    TvRailColumn(
+                        groupNames = groups.map { it.name },
+                        selectedIndex = railTabIndex,
+                        onSelect = onSelectRailTab,
+                        modifier = Modifier.width(120.dp).fillMaxHeight(),
+                    )
+                    LazyColumn(
+                        modifier = Modifier.width(300.dp).fillMaxHeight(),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(channels, key = { it.favoriteKey }) { item ->
+                            TvPlayChannelCard(
+                                channel = item,
+                                selected = item.favoriteKey == channel.favoriteKey,
+                                onPlay = { onPlayChannel(item, 0) },
+                                onSelectLine = { line -> onPlayChannel(item, line) },
+                            )
+                        }
                     }
                 }
             }
         }
     }
 }
+
+/** 播放态侧栏展示最小宽度（低于此宽度为窄屏，如手机竖屏） */
+private val WIDE_LAYOUT_MIN_WIDTH = 600.dp
 
 /** 播放态竖排 Tab：收藏 / 更新时间（红框徽标）/ 频道分组（绿点标记） */
 @Composable
