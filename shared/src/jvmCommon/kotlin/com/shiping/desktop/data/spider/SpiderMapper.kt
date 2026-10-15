@@ -65,6 +65,12 @@ object SpiderMapper {
         return categories to tidMap
     }
 
+    /** 详情失败的业务提示（顶层 msg/errMsg，如体育源「比赛尚未开始」），无则 null */
+    fun parseDetailMessage(json: String): String? {
+        val o = jsonObject(json) ?: return null
+        return (optString(o, "msg") ?: optString(o, "errMsg"))
+    }
+
     /** detailContent JSON -> Vod（含播放线路原始字段，供 parsePlaySources 拆分） */
     fun parseDetail(json: String, sourceUrl: String): Vod? {
         val o = jsonObject(json)?.getAsJsonArray("list")
@@ -97,6 +103,8 @@ object SpiderMapper {
         val arrayProtocol = (o.get("url") as? JsonArray)?.let { parseBiliQualityArray(it) }
         val biliProtocol = arrayProtocol ?: parseBiliQualityProtocol(playUrlPrefix)
         var url = arrayProtocol?.directUrl ?: optString(o, "url").orEmpty()
+        // 部分站点返回的地址被反引号/引号包裹（模板转义污染），原样喂给播放器必失败
+        url = stripWrappingMarks(url)
         // 部分爬虫 jar 自带 catvod Proxy 副本，拼出的本地代理地址端口为默认值 -1，
         // 统一改写为宿主本地代理真实端口（SpiderProxyPort 由各端桥回调写入），否则播放器报 invalid port
         url = url.replace(LOCAL_PROXY_PLACEHOLDER, LOCAL_PROXY_PREFIX + SpiderProxyPort.current)
@@ -233,6 +241,7 @@ object SpiderMapper {
             typeName = optString(o, "type_name").orEmpty(),
             vodPlayFrom = optString(o, "vod_play_from").orEmpty(),
             vodPlayUrl = optString(o, "vod_play_url").orEmpty(),
+            action = optString(o, "action").orEmpty(),
         )
     }
 
@@ -257,6 +266,15 @@ object SpiderMapper {
     private fun isDirectStream(url: String): Boolean {
         val path = url.substringBefore("?").lowercase()
         return Constants.DIRECT_STREAM_SUFFIXES.any { path.endsWith(it) }
+    }
+
+    /** 剥除地址首尾成对的反引号/引号包裹（站点模板转义污染） */
+    private fun stripWrappingMarks(url: String): String {
+        var result = url.trim()
+        while (result.length >= 2 && result.first() in "`'\"" && result.first() == result.last()) {
+            result = result.substring(1, result.length - 1).trim()
+        }
+        return result
     }
 
     private fun jsonObject(json: String): JsonObject? = runCatching {

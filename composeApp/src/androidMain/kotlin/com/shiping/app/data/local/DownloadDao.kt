@@ -58,6 +58,17 @@ interface DownloadDao {
         completedAt: Long,
     )
 
+    /** HLS 分片级断点续传：落库已完成下载单元数与累计字节 */
+    @Query(
+        "UPDATE downloads SET completedSegments = :completedSegments, " +
+            "bytesDownloaded = :bytesDownloaded WHERE contentId = :contentId",
+    )
+    suspend fun updateSegmentProgress(contentId: String, completedSegments: Int, bytesDownloaded: Long)
+
+    /** 首次分配目标产物路径落库（续传稳定复用，防重名漂移） */
+    @Query("UPDATE downloads SET localPath = :localPath WHERE contentId = :contentId")
+    suspend fun updateLocalPath(contentId: String, localPath: String)
+
     @Query("DELETE FROM downloads WHERE contentId = :contentId")
     suspend fun delete(contentId: String)
 

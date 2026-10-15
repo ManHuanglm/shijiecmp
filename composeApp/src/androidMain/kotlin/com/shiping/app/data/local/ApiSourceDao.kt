@@ -37,6 +37,18 @@ interface ApiSourceDao {
     @Update
     suspend fun update(source: ApiSourceEntity)
 
+    /** 批量设置源锁定状态 */
+    @Query("UPDATE api_sources SET locked = :value WHERE id IN (:ids)")
+    suspend fun setLocked(ids: List<Long>, value: Boolean)
+
+    /** 批量设置源播放记录开关 */
+    @Query("UPDATE api_sources SET playRecord = :value WHERE id IN (:ids)")
+    suspend fun setPlayRecord(ids: List<Long>, value: Boolean)
+
+    /** 批量设置源是否参与搜索 */
+    @Query("UPDATE api_sources SET searchable = :value WHERE id IN (:ids)")
+    suspend fun setSearchable(ids: List<Long>, value: Boolean)
+
     @Delete
     suspend fun delete(source: ApiSourceEntity)
 

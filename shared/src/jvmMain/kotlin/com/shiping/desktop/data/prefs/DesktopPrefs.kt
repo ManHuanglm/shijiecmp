@@ -82,5 +82,11 @@ class DesktopPrefs(dataDir: File) : KeyValueStore {
         val KEY_HIDE_TABS = com.shiping.shared.prefs.PrefsKeys.KEY_HIDE_TABS
         val KEY_FONT_SCALE = com.shiping.shared.prefs.PrefsKeys.KEY_FONT_SCALE
         val KEY_FONT_NAME = com.shiping.shared.prefs.PrefsKeys.KEY_FONT_NAME
+
+        /** 下载产物存储目录（空 = <dataDir>/downloads），自定义存储路径页配置，仅桌面使用 */
+        const val KEY_DOWNLOAD_DIR = "downloadDir"
+
+        /** 本地包根目录（clan://localhost/ 相对形态与 file:// 相对形态的解析基准），仅桌面使用 */
+        const val KEY_LOCAL_ROOT = "localRoot"
     }
 }

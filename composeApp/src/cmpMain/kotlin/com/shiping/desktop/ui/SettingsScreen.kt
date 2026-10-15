@@ -27,49 +27,51 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.filled.CheckBox
-import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
-import androidx.compose.material.icons.filled.CleaningServices
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.DesktopWindows
-import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Forum
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.ManageAccounts
-import androidx.compose.material.icons.filled.UploadFile
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SearchOff
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SmartDisplay
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Subscriptions
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
+import androidx.compose.material.icons.outlined.CleaningServices
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.DesktopWindows
+import androidx.compose.material.icons.outlined.DragHandle
+import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Forum
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.LightMode
+import androidx.compose.material.icons.outlined.LiveTv
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.LockOpen
+import androidx.compose.material.icons.outlined.ManageAccounts
+import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.SmartDisplay
+import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.Subscriptions
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -78,6 +80,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -121,17 +126,20 @@ import com.shiping.desktop.ui.theme.ThemeColors
 import com.shiping.desktop.ui.theme.ThemeState
 import com.shiping.desktop.ui.theme.UiScale
 import com.shiping.desktop.util.Constants
+import com.shiping.desktop.util.Maintenance
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** 设置页内导航（二级/三级页，离开设置页复位） */
-private enum class SettingsPage(val title: String) {
+/** 设置二级/三级页（internal：AppViewModel 深链 openSettingsPage 引用） */
+internal enum class SettingsPage(val title: String) {
     DATA_MANAGE("数据管理"),
     SUBSCRIBE("订阅"),
     VIDEO_SOURCE("视频源"),
     TV_SOURCE("直播源"),
     STORAGE_PATH("自定义存储路径"),
     FEATURE("功能设置"),
+    PAN_CONFIG("网盘配置"),
+    OPEN_LINK("打开链接"),
     LOG("应用日志"),
     PLAY("播放设置"),
     UI_LANG("界面 / 语言"),
@@ -146,6 +154,10 @@ private enum class SettingsPage(val title: String) {
 @Composable
 fun SettingsScreen(app: AppViewModel) {
     val stack = remember { mutableStateListOf<SettingsPage>() }
+    // 外部深链（如首页源列表弹层跳转「视频源」管理）：进入时消费一次并压栈
+    LaunchedEffect(Unit) {
+        app.consumePendingSettingsPage()?.let { stack.add(it) }
+    }
     val page = stack.lastOrNull()
     if (page == null) {
         SettingsHome(app, open = { stack.add(it) })
@@ -162,6 +174,8 @@ fun SettingsScreen(app: AppViewModel) {
                 SettingsPage.TV_SOURCE -> TvSourcePage(app, onBack = { stack.removeAt(stack.lastIndex) })
                 SettingsPage.STORAGE_PATH -> StoragePathPageContent(app)
                 SettingsPage.FEATURE -> FeatureSettingsPage(app)
+                SettingsPage.PAN_CONFIG -> PanConfigPage(app)
+                SettingsPage.OPEN_LINK -> OpenLinkPage(app)
                 SettingsPage.LOG -> LogPage()
                 SettingsPage.PLAY -> PlaySettingsPage(app)
                 SettingsPage.UI_LANG -> InterfaceLanguagePage(app, open = { stack.add(it) })
@@ -199,7 +213,7 @@ private fun SettingsTopBar(
 ) {
     Box(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         IconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
         }
         Text(
             text = title,
@@ -252,7 +266,7 @@ private fun SettingsRow(
             trailing()
         } else if (onClick != null) {
             Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                Icons.AutoMirrored.Outlined.KeyboardArrowRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -394,11 +408,11 @@ private fun SettingsHome(app: AppViewModel, open: (SettingsPage) -> Unit) {
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
         )
-        NavIconRow(Icons.Filled.Storage, "数据管理") { open(SettingsPage.DATA_MANAGE) }
-        NavIconRow(Icons.Filled.Settings, "功能设置") { open(SettingsPage.FEATURE) }
-        NavIconRow(Icons.Filled.SmartDisplay, "播放设置") { open(SettingsPage.PLAY) }
-        NavIconRow(Icons.Filled.Palette, "界面 / 语言") { open(SettingsPage.UI_LANG) }
-        NavIconRow(Icons.Filled.Description, "日志") { open(SettingsPage.LOG) }
+        NavIconRow(Icons.Outlined.Storage, "数据管理") { open(SettingsPage.DATA_MANAGE) }
+        NavIconRow(Icons.Outlined.Settings, "功能设置") { open(SettingsPage.FEATURE) }
+        NavIconRow(Icons.Outlined.SmartDisplay, "播放设置") { open(SettingsPage.PLAY) }
+        NavIconRow(Icons.Outlined.Palette, "界面 / 语言") { open(SettingsPage.UI_LANG) }
+        NavIconRow(Icons.Outlined.Description, "日志") { open(SettingsPage.LOG) }
         Spacer(Modifier.height(16.dp))
         Text(
             text = "当前版本 v${Constants.APP_VERSION}",
@@ -431,7 +445,7 @@ private fun NavIconRow(icon: ImageVector, title: String, onClick: () -> Unit) {
         Spacer(modifier = Modifier.width(14.dp))
         Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -447,16 +461,17 @@ private fun NavIconRow(icon: ImageVector, title: String, onClick: () -> Unit) {
 private fun DataManagePage(app: AppViewModel, open: (SettingsPage) -> Unit) {
     var showClean by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        NavIconRow(Icons.Filled.Subscriptions, "订阅") { open(SettingsPage.SUBSCRIBE) }
-        NavIconRow(Icons.Filled.VideoLibrary, "视频源") { open(SettingsPage.VIDEO_SOURCE) }
-        NavIconRow(Icons.Filled.LiveTv, "直播源") { open(SettingsPage.TV_SOURCE) }
-        DesktopPlaceholderRow(Icons.Filled.Extension, "推荐扩展", app)
-        DesktopPlaceholderRow(Icons.Filled.Cloud, "网盘工具扩展", app)
-        DesktopPlaceholderRow(Icons.Filled.Forum, "弹幕扩展", app)
-        DesktopPlaceholderRow(Icons.Filled.Terminal, "环境变量", app)
-        DesktopPlaceholderRow(Icons.Filled.ManageAccounts, "多平台账户", app)
-        NavIconRow(Icons.Filled.Folder, "自定义存储路径") { open(SettingsPage.STORAGE_PATH) }
-        NavIconRow(Icons.Filled.CleaningServices, "清理数据") { showClean = true }
+        NavIconRow(Icons.Outlined.Subscriptions, "订阅") { open(SettingsPage.SUBSCRIBE) }
+        NavIconRow(Icons.Outlined.VideoLibrary, "视频源") { open(SettingsPage.VIDEO_SOURCE) }
+        NavIconRow(Icons.Outlined.LiveTv, "直播源") { open(SettingsPage.TV_SOURCE) }
+        NavIconRow(Icons.Outlined.Cloud, "网盘配置") { open(SettingsPage.PAN_CONFIG) }
+        NavIconRow(Icons.Outlined.Link, "打开链接") { open(SettingsPage.OPEN_LINK) }
+        DesktopPlaceholderRow(Icons.Outlined.Extension, "推荐扩展", app)
+        DesktopPlaceholderRow(Icons.Outlined.Forum, "弹幕扩展", app)
+        DesktopPlaceholderRow(Icons.Outlined.Terminal, "环境变量", app)
+        DesktopPlaceholderRow(Icons.Outlined.ManageAccounts, "多平台账户", app)
+        NavIconRow(Icons.Outlined.Folder, "自定义存储路径") { open(SettingsPage.STORAGE_PATH) }
+        NavIconRow(Icons.Outlined.CleaningServices, "清理数据") { showClean = true }
     }
     if (showClean) {
         CleanDataDialog(app, onDismiss = { showClean = false })
@@ -469,47 +484,69 @@ private fun DesktopPlaceholderRow(icon: ImageVector, title: String, app: AppView
     NavIconRow(icon, title) { app.showMessage("「$title」桌面端暂未支持") }
 }
 
-/** 清理数据弹窗：图片缓存 / 播放历史 / 收藏 */
+/** 清理数据弹窗：对齐 FongMi 清理菜单（图片缓存/网站验证数据/播放进度/片头片尾/扩展存储/重置） */
 @Composable
 private fun CleanDataDialog(app: AppViewModel, onDismiss: () -> Unit) {
     val graph = LocalAppGraph.current
     val scope = rememberCoroutineScope()
+    val dataDir = remember { java.io.File(graph.dataDirPath) }
+    var confirmReset by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("清理数据") },
         text = {
             Column {
                 Text(
-                    "选择要清理的数据：",
+                    "选择要清理的数据（部分项需重启应用生效）：",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
                 TextButton(onClick = {
                     com.shiping.desktop.ui.common.clearImageCache()
-                    app.showMessage("图片缓存已清空")
-                    onDismiss()
-                }) { Text("清空图片缓存") }
+                    app.showMessage("图片内存缓存已清空")
+                }) { Text("清除图片缓存（内存）") }
+                TextButton(onClick = {
+                    val ok = Maintenance.cleanSiteAuth(dataDir)
+                    app.showMessage(if (ok) "网站缓存（验证数据）已清理，重启应用生效" else "清理失败（文件被占用）")
+                }) { Text("清理网站缓存(验证数据)") }
                 TextButton(onClick = {
                     scope.launch {
                         graph.playHistoryRepository.clear()
-                        app.showMessage("播放历史已清空")
+                        app.showMessage("播放进度已清空")
                     }
-                    onDismiss()
-                }) { Text("清空播放历史") }
+                }) { Text("清理播放进度") }
                 TextButton(onClick = {
-                    scope.launch {
-                        graph.favoriteRepository.clear()
-                        app.showMessage("收藏已清空")
-                    }
-                    onDismiss()
-                }) { Text("清空收藏") }
+                    app.showMessage("片头片尾功能尚未启用，暂无数据")
+                }) { Text("清理片头片尾") }
+                TextButton(onClick = {
+                    val ok = Maintenance.cleanSpiderCache(dataDir)
+                    app.showMessage(if (ok) "扩展存储（jar/转换/脚本缓存）已清理，重启应用生效" else "清理失败（文件被占用）")
+                }) { Text("清理扩展存储数据") }
+                TextButton(onClick = { confirmReset = true }) { Text("重置所有数据") }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
-        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
     )
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text("重置所有数据") },
+            text = {
+                Text(
+                    "将清除全部源配置、播放记录、收藏、缓存与验证数据（保留日志），" +
+                        "应用会自动退出，下次启动完成重置。确定继续？",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    Maintenance.markReset(dataDir)
+                    kotlin.system.exitProcess(0)
+                }) { Text("确定重置并退出", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("取消") } },
+        )
+    }
 }
 
 // endregion
@@ -587,7 +624,22 @@ private fun SubscribePage(app: AppViewModel) {
             }
         }
         if (warehouses.isNotEmpty()) {
-            Text("发现多仓配置，选择子配置：", style = MaterialTheme.typography.bodyMedium)
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("发现多仓配置，选择子配置：", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.width(12.dp))
+                TextButton(enabled = !importing, onClick = {
+                    val list = warehouses
+                    warehouses = emptyList()
+                    scope.launch {
+                        var ok = 0
+                        list.forEach { (name, url) ->
+                            runCatching { graph.tvBoxImporterService.import(url, name) }
+                                .onSuccess { if (!it.message.contains("失败")) ok++ }
+                        }
+                        app.showMessage("批量添加完成：$ok/${list.size} 个仓库")
+                    }
+                }) { Text("全部添加") }
+            }
             LazyColumn(modifier = Modifier.weight(1f)) {
                 items(warehouses, key = { it.second }) { (name, url) ->
                     Text(
@@ -654,7 +706,7 @@ private fun VideoSourcePage(app: AppViewModel, onBack: () -> Unit) {
                             imageVector = if (filtered.isNotEmpty() && selectedIds.size == filtered.size) {
                                 Icons.Filled.CheckBox
                             } else {
-                                Icons.Filled.CheckBoxOutlineBlank
+                                Icons.Outlined.CheckBoxOutlineBlank
                             },
                             contentDescription = "全选",
                         )
@@ -664,20 +716,20 @@ private fun VideoSourcePage(app: AppViewModel, onBack: () -> Unit) {
                             graph.apiSourceRepository.deleteByIds(selectedIds.toList())
                             selectedIds = emptySet()
                         }
-                    }) { Icon(Icons.Filled.Delete, contentDescription = "删除") }
+                    }) { Icon(Icons.Outlined.Delete, contentDescription = "删除") }
                     IconButton(onClick = {
                         manageMode = false
                         selectedIds = emptySet()
-                    }) { Icon(Icons.Filled.Close, contentDescription = "退出管理") }
+                    }) { Icon(Icons.Outlined.Close, contentDescription = "退出管理") }
                 }
                 else -> {
                     if (!spider) {
                         IconButton(onClick = { showAdd = true }) {
-                            Icon(Icons.Filled.Add, contentDescription = "添加源")
+                            Icon(Icons.Outlined.Add, contentDescription = "添加源")
                         }
                     }
                     IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "设置")
+                        Icon(Icons.Outlined.Settings, contentDescription = "设置")
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(
@@ -805,7 +857,7 @@ private fun VideoSourceRow(
             )
             IconButton(onClick = onToggleSearch) {
                 Icon(
-                    imageVector = if (searchable) Icons.Filled.Search else Icons.Filled.SearchOff,
+                    imageVector = if (searchable) Icons.Outlined.Search else Icons.Outlined.SearchOff,
                     contentDescription = if (searchable) "参与搜索" else "不参与搜索",
                     tint = if (searchable) MaterialTheme.colorScheme.primary else disabledTint,
                     modifier = Modifier.size(20.dp),
@@ -813,7 +865,7 @@ private fun VideoSourceRow(
             }
             IconButton(onClick = onTogglePlayRecord) {
                 Icon(
-                    imageVector = Icons.Filled.History,
+                    imageVector = Icons.Outlined.History,
                     contentDescription = if (playRecord) "播放记录已开启" else "播放记录已关闭",
                     tint = if (playRecord) MaterialTheme.colorScheme.primary else disabledTint,
                     modifier = Modifier.size(20.dp),
@@ -821,7 +873,7 @@ private fun VideoSourceRow(
             }
             IconButton(onClick = onToggleLock) {
                 Icon(
-                    imageVector = if (locked) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                    imageVector = if (locked) Icons.Outlined.Lock else Icons.Outlined.LockOpen,
                     contentDescription = if (locked) "已锁定" else "未锁定",
                     tint = if (locked) MaterialTheme.colorScheme.primary else disabledTint,
                     modifier = Modifier.size(20.dp),
@@ -869,7 +921,7 @@ private fun ManageSourceRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onMoveUp) { Icon(Icons.Filled.ArrowUpward, contentDescription = "上移") }
+        IconButton(onClick = onMoveUp) { Icon(Icons.Outlined.ArrowUpward, contentDescription = "上移") }
         Checkbox(checked = checked, onCheckedChange = onCheckChange)
     }
 }
@@ -990,14 +1042,16 @@ private fun AddSourceForm(app: AppViewModel, onClose: () -> Unit) {
     }
 }
 
-/** 编辑源表单：名称/备注/UA + 上锁/播放记录 + 设为当前源/保存 */
+/** 编辑源表单：名称/地址/备注/UA + 上锁/播放记录 + 设为当前源/保存 */
 @Composable
 private fun EditSourceForm(app: AppViewModel, source: ApiSourceEntity, onClose: () -> Unit) {
     val graph = LocalAppGraph.current
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf(source.name) }
+    var url by remember { mutableStateOf(source.url) }
     var note by remember { mutableStateOf(source.note) }
     var userAgent by remember { mutableStateOf(source.userAgent) }
+    var ext by remember { mutableStateOf(source.ext) }
     var locked by remember { mutableStateOf(source.locked) }
     var record by remember { mutableStateOf(source.playRecord) }
     var searchable by remember { mutableStateOf(source.searchable) }
@@ -1021,11 +1075,26 @@ private fun EditSourceForm(app: AppViewModel, source: ApiSourceEntity, onClose: 
             ImmersiveField("源名称", name, onValueChange = { name = it })
         }
         Spacer(modifier = Modifier.height(14.dp))
+        Text("地址", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        ImmersiveField("地址", url, onValueChange = { url = it })
+        Spacer(modifier = Modifier.height(14.dp))
         Text("备注", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         ImmersiveField("备注", note, onValueChange = { note = it })
         Spacer(modifier = Modifier.height(14.dp))
         Text("userAgent", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         ImmersiveField("userAgent", userAgent, onValueChange = { userAgent = it })
+        if (source.siteType == 3) {
+            Spacer(modifier = Modifier.height(14.dp))
+            Text("ext 配置（JSON）", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(
+                value = ext,
+                onValueChange = { ext = it },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 4,
+                maxLines = 12,
+                placeholder = { Text("爬虫源 ext 配置（JSON），留空表示无") },
+            )
+        }
         Spacer(modifier = Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             CheckOption("上锁", locked) { locked = it }
@@ -1046,16 +1115,18 @@ private fun EditSourceForm(app: AppViewModel, source: ApiSourceEntity, onClose: 
         }
         Button(
             onClick = {
-                if (name.isBlank()) {
-                    app.showMessage("源名称不能为空")
+                if (name.isBlank() || url.isBlank()) {
+                    app.showMessage("名称和地址不能为空")
                     return@Button
                 }
                 scope.launch {
                     graph.apiSourceRepository.update(
                         source.copy(
                             name = name.trim(),
+                            url = url.trim(),
                             note = note.trim(),
                             userAgent = userAgent.trim(),
+                            ext = if (source.siteType == 3) ext.trim() else source.ext,
                             locked = locked,
                             playRecord = record,
                             searchable = searchable,
@@ -1180,17 +1251,17 @@ private fun TvSourcePage(app: AppViewModel, onBack: () -> Unit) {
         ) {
             if (!showAdd && editTarget == null) {
                 IconButton(onClick = { showAdd = true }) {
-                    Icon(Icons.Filled.Add, contentDescription = "批量添加")
+                    Icon(Icons.Outlined.Add, contentDescription = "批量添加")
                 }
                 IconButton(onClick = {
                     scope.launch {
                         val path = pickImportTextFile("导入直播源")
                         if (path != null) {
                             val count = graph.tvRepository.importFile(path)
-                            app.showMessage(if (count > 0) "已导入 $count 个直播源" else "未解析到有效源")
+                            app.showMessage(if (count > 0) "已导入 $count 个直播源" else "未新增直播源（可能均已存在或格式无效）")
                         }
                     }
-                }) { Icon(Icons.Filled.UploadFile, contentDescription = "导入文件") }
+                }) { Icon(Icons.Outlined.UploadFile, contentDescription = "导入文件") }
             }
         }
         when {
@@ -1253,7 +1324,7 @@ private fun TvSourceRow(
             )
             IconButton(onClick = onDelete) {
                 Icon(
-                    Icons.Filled.Delete,
+                    Icons.Outlined.Delete,
                     contentDescription = "删除",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
@@ -1299,7 +1370,7 @@ private fun BatchAddTvForm(app: AppViewModel, onClose: () -> Unit) {
                 }
                 scope.launch {
                     val count = graph.tvRepository.batchInsert(text)
-                    app.showMessage(if (count > 0) "已添加 $count 个直播源" else "未解析到有效源")
+                    app.showMessage(if (count > 0) "已添加 $count 个直播源" else "未新增直播源（可能均已存在或格式无效）")
                     if (count > 0) onClose()
                 }
             },
@@ -1384,6 +1455,7 @@ private fun FeatureSettingsPage(app: AppViewModel) {
         PrefSwitchRow("画中画", PrefsKeys.KEY_PIP_ENABLED, true)
         PrefSwitchRow("播放记录", PrefsKeys.KEY_PLAY_RECORD_ENABLED, true)
         PrefSwitchRow("触感提示", PrefsKeys.KEY_TOUCH_HINT, false)
+        PrefSwitchRow("剪贴板自动检测", KEY_CLIPBOARD_AUTO_DETECT, true, "复制链接后切回应用自动识别：配置导入/直链播放/直播导入/片名搜索")
         SettingsRow("代理", proxy.ifBlank { "未启用" }, onClick = { showProxy = true })
         SettingsRow("按键码", onClick = { app.showMessage("桌面端无需按键码设置") })
     }
@@ -1461,7 +1533,7 @@ private fun PlaySettingsPage(app: AppViewModel) {
                 .padding(horizontal = 12.dp, vertical = 12.dp),
         ) {
             Icon(
-                imageVector = Icons.Filled.Memory,
+                imageVector = Icons.Outlined.Memory,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
             )
@@ -1601,9 +1673,9 @@ private fun InterfaceLanguagePage(app: AppViewModel, open: (SettingsPage) -> Uni
 private fun ThemePage(app: AppViewModel) {
     val prefs = LocalAppGraph.current.prefs
     val modes = listOf(
-        Triple(ThemeState.MODE_SYSTEM, Icons.Filled.DesktopWindows, "跟随系统"),
-        Triple(ThemeState.MODE_LIGHT, Icons.Filled.LightMode, "浅色"),
-        Triple(ThemeState.MODE_DARK, Icons.Filled.DarkMode, "深色"),
+        Triple(ThemeState.MODE_SYSTEM, Icons.Outlined.DesktopWindows, "跟随系统"),
+        Triple(ThemeState.MODE_LIGHT, Icons.Outlined.LightMode, "浅色"),
+        Triple(ThemeState.MODE_DARK, Icons.Outlined.DarkMode, "深色"),
     )
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text(
@@ -1629,7 +1701,7 @@ private fun ThemePage(app: AppViewModel) {
                 },
             ) {
                 if (ThemeState.mode == mode) {
-                    Icon(Icons.Filled.Check, contentDescription = "已选择", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Outlined.Check, contentDescription = "已选择", tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -1656,22 +1728,51 @@ private fun ThemePage(app: AppViewModel) {
                 },
             ) {
                 if (ThemeState.colorName == item.name) {
-                    Icon(Icons.Filled.Check, contentDescription = "已选择", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Outlined.Check, contentDescription = "已选择", tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
     }
 }
 
-/** Tab 设置页：侧边栏 Tab 显隐开关（首页/设置固定显示） */
+/** Tab 设置页：Tab 位置（底部/左上抽屉）+ 各 Tab 显隐开关（首页/设置固定显示） */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TabsSettingPage(app: AppViewModel) {
     val prefs = LocalAppGraph.current.prefs
-    val sidebarTabs = listOf("首页", "搜索", "直播", "收藏", "历史", "设置")
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        sidebarTabs.forEach { label ->
-            val fixed = label !in hideableTabs
-            val visible = label !in MainTabsState.hidden
+        // Tab 位置：底部导航 / 左上抽屉（对照移动端分段选择）
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text(
+                text = "Tab 位置",
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.width(230.dp)) {
+                SegmentedButton(
+                    selected = MainTabsState.position == TabPosition.BOTTOM,
+                    onClick = { MainTabsState.setPosition(TabPosition.BOTTOM, prefs) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                ) {
+                    Text("底部")
+                }
+                SegmentedButton(
+                    selected = MainTabsState.position == TabPosition.DRAWER,
+                    onClick = { MainTabsState.setPosition(TabPosition.DRAWER, prefs) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                ) {
+                    Text("左上抽屉")
+                }
+            }
+        }
+        mainTabs.forEach { tab ->
+            val fixed = tab.label !in hideableTabs
+            val visible = tab.label !in MainTabsState.hidden
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -1679,14 +1780,14 @@ private fun TabsSettingPage(app: AppViewModel) {
                     .padding(horizontal = 16.dp, vertical = 2.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Filled.DragHandle,
+                    imageVector = Icons.Outlined.DragHandle,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(22.dp),
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = label,
+                    text = if (tab.androidOnly) "${tab.label}（仅手机）" else tab.label,
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (fixed) {
                         MaterialTheme.colorScheme.onSurfaceVariant
@@ -1699,7 +1800,7 @@ private fun TabsSettingPage(app: AppViewModel) {
                     checked = visible,
                     enabled = !fixed,
                     onCheckedChange = { checked ->
-                        MainTabsState.setHidden(label, !checked)
+                        MainTabsState.setHidden(tab.label, !checked)
                         prefs.put(PrefsKeys.KEY_HIDE_TABS, MainTabsState.hidden.joinToString(","))
                     },
                 )
@@ -1798,6 +1899,138 @@ private fun LogPage() {
                         },
                     )
                 }
+            }
+        }
+    }
+}
+
+// endregion
+
+// region 网盘配置
+
+/** 网盘配置项：推送路由 do= 参数值 + 展示名 + Cookie/Token 粘贴提示 */
+private data class PanDriveItem(val drive: String, val label: String, val hint: String)
+
+/** 网盘配置项列表（drive 与生态推送路由 do=quark|UC|baidu|ali 对应） */
+private val PAN_DRIVES = listOf(
+    PanDriveItem("quark", "夸克", "粘贴 pan.quark.cn 的 Cookie"),
+    PanDriveItem("UC", "UC", "粘贴 drive.uc.cn 的 Cookie"),
+    PanDriveItem("baidu", "百度", "粘贴 pan.baidu.com 的 Cookie（BDUSS）"),
+    PanDriveItem("ali", "阿里", "粘贴阿里云盘 Token"),
+)
+
+/** 失败消息含该标记时转译为引导提示（处理器未加载：需先进过对应网盘源） */
+private const val PAN_NO_HANDLER_TAG = "无爬虫处理"
+
+/**
+ * 网盘配置页：粘贴 Cookie/Token 推送到本地代理生态路由（与扫码推送页同链路），
+ * 由网盘爬虫自行落盘；保存后刷新或重进网盘源生效。清除 Cookie 在网盘源列表项内操作。
+ */
+@Composable
+internal fun PanConfigPage(app: AppViewModel) {
+    val graph = LocalAppGraph.current
+    val scope = rememberCoroutineScope()
+    val values = remember { MutableList(PAN_DRIVES.size) { mutableStateOf("") } }
+    var pushingDrive by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = "登录网盘网页版后复制 Cookie 粘贴到对应输入框保存。" +
+                "夸克/百度需先在首页进入过对应网盘源（加载推送处理器）。" +
+                "保存后重新进入「我的云盘」源生效；清除 Cookie 可在网盘源内点击对应清除项。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        PAN_DRIVES.forEachIndexed { index, item ->
+            OutlinedTextField(
+                value = values[index].value,
+                onValueChange = { values[index].value = it },
+                label = { Text(item.label) },
+                placeholder = { Text(item.hint) },
+                enabled = pushingDrive == null,
+                minLines = 2,
+                maxLines = 4,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    pushingDrive = item.drive
+                    scope.launch {
+                        // 批量粘贴：换行/分号分隔多条 Cookie/Token 逐条推送（适配阿里/夸克多账号）
+                        val entries = values[index].value.trim().split(Regex("[\\n；;]+"))
+                            .map { it.trim() }.filter { it.isNotBlank() }
+                        var ok = 0
+                        var failMsg = ""
+                        entries.forEach { entry ->
+                            graph.vodRepository.pushPanCookie(item.drive, entry)
+                                .onSuccess { ok++ }
+                                .onFailure { err ->
+                                    val msg = err.message ?: "未知错误"
+                                    if (failMsg.isBlank()) failMsg =
+                                        if (msg.contains(PAN_NO_HANDLER_TAG)) "未找到该网盘的推送处理器，请先进入一次对应网盘源" else msg
+                                }
+                        }
+                        pushingDrive = null
+                        when {
+                            entries.size > 1 -> app.showMessage("${item.label}批量保存完成：$ok/${entries.size} 条")
+                            failMsg.isNotBlank() -> app.showMessage("${item.label}保存失败：$failMsg")
+                            else -> app.showMessage("${item.label}已保存，请刷新或重进网盘源生效")
+                        }
+                    }
+                },
+                enabled = pushingDrive == null && values[index].value.isNotBlank(),
+            ) {
+                Text(if (pushingDrive == item.drive) "保存中…" else "保存")
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+// endregion
+
+// region 打开链接
+
+/** 打开链接页：粘贴 m3u8/mp4 直链直接播放 + 会话内剪贴板历史快速取用 */
+@Composable
+private fun OpenLinkPage(app: AppViewModel) {
+    var url by remember { mutableStateOf(readClipboardText()?.trim().orEmpty()) }
+    val history = remember { ClipboardHistory.items }
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            "粘贴 m3u8/mp4/mkv 直链立即播放（进入本页自动预填剪贴板内容）。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextInputRow(
+            label = "视频直链",
+            value = url,
+            onValueChange = { url = it },
+            placeholder = "https://.../index.m3u8",
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { if (url.isNotBlank()) app.playDirect("直链播放", url.trim()) },
+                enabled = url.isNotBlank(),
+            ) { Text("立即播放") }
+            OutlinedButton(onClick = { readClipboardText()?.let { url = it.trim() } }) { Text("读取剪贴板") }
+        }
+        if (history.isNotEmpty()) {
+            Text("剪贴板历史（本会话）", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            history.forEach { entry ->
+                SettingsRow(
+                    title = entry.text.take(60),
+                    subtitle = entry.kind,
+                    onClick = { url = entry.text },
+                )
             }
         }
     }

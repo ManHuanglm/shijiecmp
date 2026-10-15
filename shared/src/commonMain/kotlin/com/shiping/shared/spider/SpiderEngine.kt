@@ -53,4 +53,10 @@ interface SpiderEngine {
      * 或 null（无爬虫处理该请求）。
      */
     fun proxyInvoke(params: Map<String, String>): Array<Any>?
+
+    /**
+     * action 协议：TVBox 生态约定，分类列表项携带 "action" 字段时点击应调爬虫 action
+     * （如网盘源的「登入自己网盘 / 清除xxCookie」），返回提示文本（可能为空）。
+     */
+    suspend fun actionContent(jarUrl: String, key: String, ext: String = "", siteKey: String = "", action: String): String = ""
 }

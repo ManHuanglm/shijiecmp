@@ -1,4 +1,4 @@
-﻿package com.shiping.desktop.player
+package com.shiping.desktop.player
 
 import com.shiping.desktop.util.AppLog
 import com.sun.jna.Function
@@ -471,11 +471,14 @@ class MdkPlayerController(prefs: com.shiping.shared.prefs.KeyValueStore) : Abstr
         applyVideoScale(table, prefs.getString(com.shiping.shared.prefs.PrefsKeys.KEY_VIDEO_SCALE, "fit"))
     }
 
-    /** 画面比例应用：crop=等比外扩铺满 / stretch=无视宽高比拉伸 / fit=等比适应（mdk 默认） */
+    /** 画面比例应用：crop=等比外扩铺满 / stretch=无视宽高比拉伸 / 16:9·9:16·4:3=强制比例 / fit=等比适应（mdk 默认） */
     private fun applyVideoScale(table: PlayerApiTable, scale: String) {
         when (scale) {
             "crop" -> table.call({ it.setAspectRatio }, -ASPECT_FIT, null as Pointer?)
             "stretch" -> table.call({ it.setAspectRatio }, 0f, null as Pointer?)
+            "16:9" -> table.call({ it.setAspectRatio }, 16f / 9f, null as Pointer?)
+            "9:16" -> table.call({ it.setAspectRatio }, 9f / 16f, null as Pointer?)
+            "4:3" -> table.call({ it.setAspectRatio }, 4f / 3f, null as Pointer?)
         }
     }
 

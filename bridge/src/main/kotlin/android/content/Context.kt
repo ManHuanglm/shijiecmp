@@ -33,7 +33,7 @@ open class Context {
 
     open fun getApplicationContext(): Context = this
 
-    open fun getPackageName(): String = "com.shiping.desktop"
+    open fun getPackageName(): String = "com.fongmi.android.tv"
 
     open fun getApplicationInfo(): ApplicationInfo = ApplicationInfo()
 
@@ -44,6 +44,11 @@ open class Context {
 
     /** 权限检查：桌面端无权限体系，一律授予 */
     open fun checkSelfPermission(permission: String?): Int = PERMISSION_GRANTED
+
+    /** 权限检查（Calling/Or 变体，easy 系 jar Init 引导调用）：一律授予 */
+    open fun checkCallingOrSelfPermission(permission: String?): Int = PERMISSION_GRANTED
+
+    open fun checkPermission(permission: String?, pid: Int, uid: Int): Int = PERMISSION_GRANTED
 
     open fun getPackageName_(): String = getPackageName()
 

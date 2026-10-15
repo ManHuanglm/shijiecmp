@@ -8,6 +8,9 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- 下载导出相册（Android 9- 公共 Movies 目录；10+ 走 MediaStore 无需权限） -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- 本地包读取共享存储（TVBox 约定 /sdcard/TVBoxOSC）：11+ 需用户在设置授予「所有文件访问」 -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
     <application
         android:name=".ShipingApp"

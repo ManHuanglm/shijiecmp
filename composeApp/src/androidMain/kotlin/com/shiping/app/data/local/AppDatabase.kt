@@ -16,7 +16,7 @@ import com.shiping.app.data.model.TvSourceEntity
 
 @Database(
     entities = [ApiSourceEntity::class, ParseSourceEntity::class, DownloadEntity::class, PlayHistoryEntity::class, TvSourceEntity::class, FavoriteEntity::class],
-    version = 11,
+    version = 13,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -95,6 +95,23 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v11→v12：api_sources 新增 locked/playRecord/searchable/userAgent，与桌面端字段对齐 */
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `api_sources` ADD COLUMN `locked` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `api_sources` ADD COLUMN `playRecord` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `api_sources` ADD COLUMN `searchable` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `api_sources` ADD COLUMN `userAgent` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        /** v12→v13：downloads 新增 completedSegments，支持 HLS 分片级断点续传 */
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `downloads` ADD COLUMN `completedSegments` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return instance ?: synchronized(this) {
                 instance ?: buildDatabase(context.applicationContext).also { instance = it }
@@ -111,7 +128,7 @@ abstract class AppDatabase : RoomDatabase() {
             if (BuildConfig.DEBUG) {
                 builder.fallbackToDestructiveMigration()
             }
-            builder.addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+            builder.addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
             return builder.build()
         }
     }

@@ -2,6 +2,7 @@ package com.shiping.app.data.model
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.shiping.shared.download.DownloadStatus
 
 /**
  * 下载/缓存任务实体。
@@ -39,12 +40,14 @@ data class DownloadEntity(
     val completedAt: Long = 0L,
     /** 导出到相册后的本地地址（MediaStore content Uri 或文件路径），空表示未导出 */
     val localPath: String = "",
+    /** HLS 分片级断点续传：已完成下载单元数（init 段 + 媒体分片），0 表示从头开始 */
+    val completedSegments: Int = 0,
 ) {
     companion object {
-        const val STATUS_QUEUED = 0
-        const val STATUS_DOWNLOADING = 1
-        const val STATUS_COMPLETED = 2
-        const val STATUS_FAILED = 3
-        const val STATUS_PAUSED = 4
+        const val STATUS_QUEUED = DownloadStatus.QUEUED
+        const val STATUS_DOWNLOADING = DownloadStatus.DOWNLOADING
+        const val STATUS_COMPLETED = DownloadStatus.COMPLETED
+        const val STATUS_FAILED = DownloadStatus.FAILED
+        const val STATUS_PAUSED = DownloadStatus.PAUSED
     }
 }

@@ -104,11 +104,17 @@ interface TvRepository {
     /** 更新直播源（名称/地址/备注） */
     suspend fun update(source: TvSourceEntity)
 
-    /** 批量添加直播源（每行一个，仅url / 名称,url / 名称,url,备注），返回导入条数 */
+    /** 批量添加直播源（每行一个，仅url / 名称,url / 名称,url,备注），按 URL 去重，返回实际新增条数 */
     suspend fun batchInsert(text: String): Int
 
     /** 从本地 txt 文件导入直播源，返回导入条数（读取失败返回 0） */
     suspend fun importFile(path: String): Int
+
+    /**
+     * 批量去重插入直播源：批内重复与库中已有 URL 均跳过（先到者优先），返回实际新增条数。
+     * TVBox 配置导入直播源走此入口，重复导入配置不产生重复记录。
+     */
+    suspend fun insertUnique(sources: List<TvSourceEntity>): Int
 
     suspend fun insert(source: TvSourceEntity): Long
 
@@ -180,4 +186,17 @@ interface VodRepository {
 
     /** 解析播放地址：爬虫源调 playerContent 得到直链与请求头；CMS 源返回 null */
     suspend fun resolvePlayUrl(sourceUrl: String, rawUrl: String): SpiderPlayInfo?
+
+    /**
+     * 爬虫 action 协议：网盘源「登入自己网盘 / 清除xxCookie」等列表项，
+     * 按生态约定交爬虫 action 处理，返回提示文本（可空）。
+     */
+    suspend fun spiderAction(sourceUrl: String, vodId: Int, action: String): String = ""
+
+    /**
+     * 网盘配置推送：把 Cookie/Token 经本地代理生态路由写入网盘爬虫配置，
+     * 返回响应文本；失败（含未找到处理器）以异常表达。
+     */
+    suspend fun pushPanCookie(drive: String, value: String): Result<String> =
+        Result.failure(IllegalStateException("当前端不支持网盘配置推送"))
 }

@@ -1,5 +1,6 @@
 package com.shiping.desktop.ui.theme
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -8,7 +9,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import com.shiping.shared.prefs.KeyValueStore
 import com.shiping.shared.prefs.PrefsKeys
 
@@ -26,34 +30,40 @@ val ThemeColors = listOf(
     ThemeColorItem("橙", Color(0xFFFF9800), Color(0xFFFFE0B2)),
 )
 
-/** 深色配色（primary/primaryContainer 随主题色变化） */
+/** 深色配色（primary/primaryContainer/secondaryContainer 随主题色变化） */
 private fun darkScheme(color: ThemeColorItem) = darkColorScheme(
     primary = color.primary,
     onPrimary = Color.White,
     primaryContainer = color.lightContainer.copy(alpha = 0.30f),
     onPrimaryContainer = Color(0xFFE6E6E6),
-    secondary = Color(0xFF7FB069),
+    // 底部导航选中块/频道卡片容器：主题色轻染深色底，随主题色切换且在深背景上可见
+    secondaryContainer = color.primary.copy(alpha = 0.22f).compositeOver(Color(0xFF1E2126)),
+    onSecondaryContainer = color.lightContainer,
     background = Color(0xFF121316),
     onBackground = Color(0xFFE6E6E6),
     surface = Color(0xFF1B1D22),
     onSurface = Color(0xFFE6E6E6),
     surfaceVariant = Color(0xFF252830),
     onSurfaceVariant = Color(0xFFA8ADB8),
-    secondaryContainer = Color(0xFF232E42),
-    onSecondaryContainer = Color(0xFFD5E2F7),
     error = Color(0xFFCF6679),
 )
 
-/** 浅色配色（primary/primaryContainer 随主题色变化） */
+/** 浅色配色（primary/primaryContainer/secondaryContainer 随主题色变化，背景轻染主题色） */
 private fun lightScheme(color: ThemeColorItem) = lightColorScheme(
     primary = color.primary,
     onPrimary = Color.White,
     primaryContainer = color.lightContainer,
     onPrimaryContainer = Color(0xFF212121),
-    background = Color(0xFFF6F7F9),
+    // 底部导航选中块等 secondaryContainer 取位：浅主题容器色，随主题色切换
+    secondaryContainer = color.lightContainer,
+    onSecondaryContainer = color.primary,
+    // 页面背景：中性白与浅主题容器色轻混，带主题色调（不透明）
+    background = color.lightContainer.copy(alpha = 0.28f).compositeOver(Color.White),
     surface = Color.White,
-    secondaryContainer = Color(0xFFD9E6FB),
-    onSecondaryContainer = Color(0xFF17325F),
+    surfaceVariant = Color(0xFFF2F3F5),
+    onSurfaceVariant = Color(0xFF666666),
+    outline = Color(0xFFCCCCCC),
+    outlineVariant = Color(0xFFEEEEEE),
 )
 
 /** 主题模式（设置页「界面/语言 → 主题」可选，持久化于 KeyValueStore） */
@@ -64,6 +74,10 @@ object ThemeState {
 
     var mode by mutableStateOf(MODE_SYSTEM)
         private set
+
+    /** 当前是否深色模式（ShipingTheme 内随解析结果更新，供渐变背景等取用） */
+    var isDark by mutableStateOf(false)
+        internal set
 
     /** 当前主题色名称（对应 ThemeColors.name） */
     var colorName by mutableStateOf("蓝")
@@ -112,10 +126,39 @@ fun ShipingTheme(content: @Composable () -> Unit) {
         else -> isSystemInDarkTheme()
     }
     val color = ThemeColors.firstOrNull { it.name == ThemeState.colorName } ?: ThemeColors.first()
+    ThemeState.isDark = dark
     MaterialTheme(
         colorScheme = if (dark) darkScheme(color) else lightScheme(color),
         content = content,
     )
+}
+
+/**
+ * 全局渐变背景（根容器统一使用）：主题色轻染的上下渐变。
+ * 深色：主题色 12% → 4% 叠深灰，顶部微亮底部沉暗；浅色：主题色轻染白 → 浅主题背景。
+ */
+@Composable
+fun Modifier.appBackground(): Modifier {
+    val scheme = MaterialTheme.colorScheme
+    return if (ThemeState.isDark) {
+        background(
+            Brush.verticalGradient(
+                listOf(
+                    scheme.primary.copy(alpha = 0.12f).compositeOver(Color(0xFF232830)),
+                    scheme.primary.copy(alpha = 0.04f).compositeOver(Color(0xFF121418)),
+                ),
+            ),
+        )
+    } else {
+        background(
+            Brush.verticalGradient(
+                listOf(
+                    scheme.primary.copy(alpha = 0.10f).compositeOver(Color(0xFFFFFFFF)),
+                    scheme.background,
+                ),
+            ),
+        )
+    }
 }
 
 /**

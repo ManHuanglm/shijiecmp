@@ -24,3 +24,15 @@ composeApp/app-resources/mdk/
 probe-*.txt
 app-run*.txt
 tmp/
+
+# 参考仓库与第三方源码树（本地对照用，不入库）
+TVBoxOSC/
+XBPQ/
+quickjs-0.17.0/
+quickjs-wrapper-src/
+
+# quickjs.dll 本地编译工具链
+mingw64/
+
+# bridge 旧式输出目录
+bridge/bin/

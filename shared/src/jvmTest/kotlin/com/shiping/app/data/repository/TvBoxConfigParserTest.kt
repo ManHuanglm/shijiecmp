@@ -104,6 +104,43 @@ class TvBoxConfigParserTest {
     }
 
     @Test
+    fun 多仓配置兼容中文键名() {
+        val json = """
+            {"storeHouse": [
+              {"仓名":"匿名单仓","地址":"https://a.example.com/123.txt"},
+              {"sourceName":"无名","sourceUrl":"https://b.example.com/lmw.json"}
+            ]}
+        """.trimIndent()
+        val result = parse(json)
+        assertTrue(result.ok)
+        assertEquals(2, result.warehouses.size)
+        assertEquals("匿名单仓" to "https://a.example.com/123.txt", result.warehouses.first())
+    }
+
+    @Test
+    fun HTML落地页提取候选配置地址() {
+        val html = """
+            <!DOCTYPE html>
+            <html lang="zh-CN"><head><title>TvBox接口源</title>
+            <link rel="stylesheet" href="//cdn.staticfile.net/font-awesome/6.5.1/css/all.min.css">
+            <script src="./todo-sdk.min.js"></script></head>
+            <body><a class="main-btn" href="https://app.example.com/tv">一键配置</a>
+            <a href="https://www.example.com/about">关于</a></body></html>
+        """.trimIndent()
+        val candidates = TvBoxConfigParser.landingCandidates(html.toByteArray(), "https://www.example.com/tv")
+        assertTrue(candidates.isNotEmpty())
+        assertEquals("https://app.example.com/tv", candidates.first())
+        // 相对地址按 baseUrl 补全、静态资源被排除
+        assertTrue(candidates.none { it.contains("staticfile") || it.contains("todo-sdk") })
+    }
+
+    @Test
+    fun 非HTML内容不做落地页提取() {
+        val json = """{"urls":[]}"""
+        assertTrue(TvBoxConfigParser.landingCandidates(json.toByteArray(), "https://a.example.com/x.json").isEmpty())
+    }
+
+    @Test
     fun 解析源仅取前缀拼接式() {
         val json = """
             {"parses": [
@@ -116,6 +153,53 @@ class TvBoxConfigParserTest {
         assertTrue(result.ok)
         assertEquals(1, result.parses.size)
         assertEquals("JSON解析" to "https://jx.example.com/?url=", result.parses.first().let { it.name to it.url })
+    }
+
+    @Test
+    fun 站点searchable字段决定可搜状态() {
+        val json = """
+            {"sites": [
+              {"key":"a","name":"缺省源","type":3,"api":"csp_A","jar":"https://j.example.com/a.jar"},
+              {"key":"b","name":"显式可搜","type":3,"api":"csp_B","jar":"https://j.example.com/b.jar","searchable":1},
+              {"key":"c","name":"不可搜","type":3,"api":"csp_C","jar":"https://j.example.com/c.jar","searchable":0},
+              {"key":"d","name":"CMS禁搜","type":0,"api":"https://api.example.com/vod","searchable":0}
+            ]}
+        """.trimIndent()
+        val result = parse(json)
+        assertTrue(result.ok)
+        val byName = result.sites.associateBy { it.name }
+        assertTrue(byName.getValue("缺省源").searchable, "缺省视为可搜（对齐 FongMi null→1）")
+        assertTrue(byName.getValue("显式可搜").searchable)
+        assertFalse(byName.getValue("不可搜").searchable, "searchable=0 不参与聚合搜索")
+        assertFalse(byName.getValue("CMS禁搜").searchable)
+    }
+
+    @Test
+    fun 缺引号键名修复且字符串内斜杠不受损() {
+        // 肥猫系配置手写笔误：ext 键缺开头引号；且 ext.site 字符串内含 //（曾被状态机错位误删）
+        val json = """
+            {
+              "spider": "https://j.example.com/x.jar;md5;ff",
+              "sites": [
+                {"key":"a","name":"行动","type":3,"api":"csp_AppDrama",
+ext": {"site": " https://cdn.example.com/oss/az5.txt ","pkg":"com.x"}}
+              ],
+              "lives": [
+                {"name":"聚合","type":3,"url":"https://live.example.com/g.m3u"}
+              ]
+            }
+        """.trimIndent()
+        val result = parse(json)
+        assertTrue(result.ok)
+        assertEquals(1, result.sites.size)
+        val site = result.sites.single()
+        assertTrue(site.ext.contains("https://cdn.example.com/oss/az5.txt"), "字符串内 // 应原样保留")
+        assertEquals("com.x", Regex("\"pkg\":\"([^\"]+)\"").find(site.ext)?.groupValues?.get(1))
+        // 缺引号键修复后 ext 应为合法 JSON 对象串
+        assertTrue(site.ext.contains("\"host\"") || site.ext.contains("\"site\""))
+        // lives type 3（聚合直播）应收录
+        assertEquals(1, result.lives.size)
+        assertEquals("https://live.example.com/g.m3u", result.lives.single().url)
     }
 
     @Test

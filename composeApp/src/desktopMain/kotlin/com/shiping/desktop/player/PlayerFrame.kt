@@ -44,8 +44,8 @@ class PlayerFrame(
         fun onDownloadEpisode(episodeIndex: Int)
     }
 
-    /** 覆盖控制层（视频面 + 分辨率/进度/控制排） */
-    private val overlay = PlayerOverlay(controller.swingComponent, controller, this)
+    /** 覆盖控制层（视频面 + 分辨率/进度/控制排）；独立播放窗口：完整布局 + 保留小窗/最大化 */
+    private val overlay = PlayerOverlay(controller.swingComponent, controller, this, standalone = true)
 
     /** 当前会话（清晰度切换时取上下文） */
     @Volatile
@@ -64,6 +64,9 @@ class PlayerFrame(
 
     /** 是否处于全屏（无边框）状态 */
     private var fullscreen = false
+
+    /** 进入全屏前的窗口形态（退出时还原，不丢最大化状态） */
+    private var savedExtendedState = JFrame.NORMAL
 
     /** 小窗模式前的窗口边界（还原用） */
     private var miniRestoreBounds: java.awt.Rectangle? = null
@@ -124,13 +127,18 @@ class PlayerFrame(
         extendedState = if (extendedState and JFrame.MAXIMIZED_BOTH != 0) JFrame.NORMAL else JFrame.MAXIMIZED_BOTH
     }
 
-    /** 全屏切换：无边框 + 最大化（重挂窗口使装饰变更生效） */
+    /** 全屏切换：无边框 + 最大化（重挂窗口使装饰变更生效；退出还原进入前的窗口形态） */
     override fun toggleFullscreen() {
         runCatching {
             isVisible = false
             isUndecorated = !fullscreen
             fullscreen = !fullscreen
-            extendedState = if (fullscreen) JFrame.MAXIMIZED_BOTH else JFrame.NORMAL
+            if (fullscreen) {
+                savedExtendedState = extendedState
+                extendedState = JFrame.MAXIMIZED_BOTH
+            } else {
+                extendedState = savedExtendedState
+            }
             isVisible = true
             overlay.updateFullscreenState(fullscreen)
         }

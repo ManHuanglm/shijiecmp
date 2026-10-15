@@ -64,6 +64,26 @@ open class View {
 
     open fun setTag(any: Any?) = Unit
 
+    open fun setLayoutParams(params: ViewGroup.LayoutParams?) = Unit
+
+    open fun setPadding(left: Int, top: Int, right: Int, bottom: Int) = Unit
+
+    open fun setPaddingRelative(left: Int, top: Int, right: Int, bottom: Int) = Unit
+
+    open fun setAlpha(alpha: Float) = Unit
+
+    open fun setElevation(elevation: Float) = Unit
+
+    open fun setBackgroundColor(color: Int) = Unit
+
+    open fun setVerticalScrollBarEnabled(enabled: Boolean) = Unit
+
+    open fun setHorizontalScrollBarEnabled(enabled: Boolean) = Unit
+
+    open fun setOverScrollMode(mode: Int) = Unit
+
+    open fun setClipToPadding(clip: Boolean) = Unit
+
     open fun getTag(): Any? = null
 
     open fun requestLayout() = Unit
@@ -71,6 +91,43 @@ open class View {
     open fun invalidate() = Unit
 
     open fun post(action: Runnable?): Boolean = false
+
+    interface OnLayoutChangeListener {
+
+        fun onLayoutChange(
+            v: View?,
+            left: Int,
+            top: Int,
+            right: Int,
+            bottom: Int,
+            oldLeft: Int,
+            oldTop: Int,
+            oldRight: Int,
+            oldBottom: Int,
+        )
+    }
+
+    interface OnAttachStateChangeListener {
+
+        fun onViewAttachedToWindow(v: View?)
+
+        fun onViewDetachedFromWindow(v: View?)
+    }
+
+    interface OnScrollChangeListener {
+
+        fun onScrollChange(v: View?, scrollX: Int, scrollY: Int, oldScrollX: Int, oldScrollY: Int)
+    }
+
+    interface OnHoverListener {
+
+        fun onHover(v: View?, event: MotionEvent?): Boolean
+    }
+
+    interface OnGenericMotionListener {
+
+        fun onGenericMotion(v: View?, event: MotionEvent?): Boolean
+    }
 
     interface OnClickListener {
         fun onClick(v: View?)

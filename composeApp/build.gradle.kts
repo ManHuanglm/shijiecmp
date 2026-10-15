@@ -59,6 +59,8 @@ kotlin {
             implementation(project(":shared"))
             implementation(compose.runtime)
             implementation(compose.foundation)
+            // M2 material：下拉刷新（pullRefresh，M3 1.2 尚无 PullToRefreshBox）
+            implementation(compose.material)
             implementation(compose.material3)
             implementation(compose.materialIconsExtended)
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
@@ -92,6 +94,10 @@ kotlin {
             implementation("androidx.camera:camera-lifecycle:1.3.4")
             implementation("androidx.camera:camera-view:1.3.4")
             implementation("com.google.zxing:core:3.5.3")
+            // quickjs JS 爬虫引擎运行时（com.fongmi.quickjs.* 引擎源编入 APK，aar 自带各 ABI native）
+            implementation("wang.harlon.quickjs:wrapper-android:3.2.3")
+            // Chaquopy Python 引擎（PY 爬虫）：独立纯 AGP 模块（内嵌 CPython + pip 依赖）
+            implementation(project(":chaquo"))
             // 持久化：Room（仓库栈）+ DataStore（KeyValueStore 实现）
             implementation("androidx.room:room-runtime:2.6.1")
             implementation("androidx.room:room-ktx:2.6.1")
@@ -115,9 +121,25 @@ android {
     defaultConfig {
         applicationId = "com.shiping.app"
         minSdk = 24
-        targetSdk = 34
+        // 28 而非 34：Android 10+ 对 targetSdk>=29 的应用启用 W^X 限制（SELinux 拒绝执行
+        // app data 目录下的二进制），南风等爬虫 jar 的 go 解析代理（goServer 9966/goProxy
+        // 1072）全靠 nohup 执行 files/ 下的二进制，被拦则 B 站等源的 playerContent 静默
+        // 返回空（BaseApi.isOk 检测到 go 服务死亡直接短路，2026-10-12 真机日志实证）。
+        // targetSdk<29 落入 untrusted_app_27 域恢复 exec 权限，TVBox 生态通用做法
+        targetSdk = 28
         versionCode = 1
         versionName = "1.0"
+    }
+
+    splits {
+        abi {
+            // 分架构出包：真机装 arm64-v8a，老设备 armeabi-v7a，模拟器 x86_64；
+            // universal 为全架构合并包（体积大，兜底用）
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86_64")
+            isUniversalApk = true
+        }
     }
 
     compileOptions {
@@ -127,6 +149,12 @@ android {
 
     buildFeatures {
         buildConfig = true
+    }
+
+    lint {
+        // targetSdk=28 是爬虫 go 代理 exec 的必要条件（W^X 限制规避，见 defaultConfig 注释），
+        // 本应用仅侧载分发不上架 Google Play，禁用 Play 目标 API 版本检查
+        disable += "ExpiredTargetSdkVersion"
     }
 
     signingConfigs {

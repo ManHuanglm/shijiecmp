@@ -19,15 +19,19 @@ sealed class Screen {
     /** 「我的」合并页（Android 底部 Tab：收藏+历史页签；桌面不导航到该页） */
     data object Mine : Screen()
 
-    /** 下载管理（Android 专属：任务队列与本地导出文件；桌面不导航到该页） */
+    /** 下载管理（双端）：任务队列与本地产物（Android 导出相册 / 桌面落盘 downloads） */
     data object Downloads : Screen()
 
-    /** 详情页：vodId + 源地址（跨源打开用），title/pic 为列表页已知信息（详情未回前先显示） */
+    /** 详情页：vodId + 源地址（跨源打开用），title/pic 为列表页已知信息（详情未回前先显示）。
+     * [autoPlay] 详情就绪后自动起播（播放容错自动换源/跨源点击进入）；
+     * [failedSourceUrls] 播放容错换源链上已失败的源（换源候选排除，防 A/B 源回跳死循环）。 */
     data class Detail(
         val vodId: Int,
         val sourceUrl: String,
         val title: String,
         val pic: String,
+        val autoPlay: Boolean = false,
+        val failedSourceUrls: Set<String> = emptySet(),
     ) : Screen()
 }
 

@@ -5,6 +5,7 @@ import androidx.compose.ui.Modifier
 import com.shiping.desktop.data.model.TvChannel
 import com.shiping.desktop.data.spider.BiliQualityOption
 import com.shiping.desktop.player.IntroMark
+import com.shiping.desktop.ui.player.PagePlayerModeState
 import com.shiping.shared.graph.AppGraph
 import com.shiping.shared.player.PlayerKernel
 
@@ -71,6 +72,16 @@ data class InPagePlayerConfig(
     val sourceSubtexts: List<String> = emptyList(),
     /** 源列表右侧更新信息（与 sources 等长，如「更新至：第 159 集」） */
     val sourceUpdateTexts: List<String> = emptyList(),
+    /** 其他源同名影片（源列表弹层追加区，空隐藏；分批搜索动态追加） */
+    val crossSources: List<CrossSourceMatch> = emptyList(),
+    /** 其他源分批加载中（弹层尾部指示） */
+    val crossLoading: Boolean = false,
+    /** 其他源是否还有未搜索的源（触底加载开关） */
+    val crossHasMore: Boolean = false,
+    /** 其他源条目点击（跳对应源详情播放），空隐藏追加区 */
+    val onCrossSourceSelected: ((CrossSourceMatch) -> Unit)? = null,
+    /** 其他源滚动触底加载下一批源 */
+    val onCrossSourceLoadMore: (() -> Unit)? = null,
     // endregion
     // region 清晰度（B 站协议源）
     val qualities: List<BiliQualityOption> = emptyList(),
@@ -89,10 +100,16 @@ data class InPagePlayerConfig(
     val introMark: IntroMark.Mark? = null,
     /** 下载当前集回调（空时点击提示不支持） */
     val onDownloadEpisode: ((Int) -> Unit)? = null,
+    /** 批量下载选中集回调（选集面板勾选模式「下载全」用；空时面板隐藏下载所选入口） */
+    val onDownloadEpisodes: ((List<Int>) -> Unit)? = null,
+    /** 下载全部集回调（空时两端选集面板隐藏「下载全部」入口） */
+    val onDownloadAllEpisodes: (() -> Unit)? = null,
     /** 直播频道侧栏规格（非空时 ▦ 按钮转「频道列表」语义） */
     val channelPanel: TvChannelPanelSpec? = null,
     /** ⚙ 播放设置入口（桌面右缘滑出设置面板；Android 暂无） */
     val showPlayerSettings: Boolean = false,
+    /** 控制层全屏切换（Android 控制层 ⛶ 按钮；空时默认切点播 detailFullscreen，直播会话需传 tvFullscreen 切换） */
+    val onToggleFullscreen: (() -> Unit)? = null,
 )
 
 /** 创建页内播放内核（桌面=按偏好创建 mpv/vlc/MDK；Android=media3） */
@@ -107,10 +124,15 @@ expect suspend fun awaitSurfaceReady(kernel: PlayerKernel, timeoutMs: Long, poll
 /** 释放页内播放内核（桌面=后台线程拆 native 防 EDT 卡顿；Android=内核内部主线程队列） */
 expect fun releasePageKernel(kernel: PlayerKernel)
 
+/** 手机端平台标记（Android=true，桌面=false）：手机端专属播放行为（固定比例铺满宽度、播完自动连播）的开关 */
+expect val isPhonePlatform: Boolean
+
 /**
  * 页内播放区：渲染面 + 控制层（expect，平台 actual 承载）。
  * actual 内部完成控制层注册（[AppViewModel.registerInPageOverlay]）与配置刷新；
  * 动作集经 [onActionsReady] 一次性回传。
+ * [modeState] 为页面持有的统一模式状态机（bind/unbind 由页面负责，
+ * 平台 actual 负责同步系统画中画激活态），空时控制层本地派生模式。
  */
 @Composable
 expect fun InPagePlayerSurface(
@@ -120,6 +142,7 @@ expect fun InPagePlayerSurface(
     config: InPagePlayerConfig,
     modifier: Modifier = Modifier,
     onActionsReady: (InPagePlayerActions) -> Unit = {},
+    modeState: PagePlayerModeState? = null,
 )
 
 /** 起播前等待视频面挂载的上限（毫秒） */

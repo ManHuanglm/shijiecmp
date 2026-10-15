@@ -32,6 +32,11 @@ dependencies {
     implementation("androidx.annotation:annotation:1.6.0")
     // FtyGuardEngine：JVM 内模拟 ARM64 执行加固壳 so（饭太硬 ftyguard）
     implementation("com.github.zhkl0228.unidbg:unidbg-android:0.9.8")
+    // PayloadPatch：字节码补丁给 payload DexNative 注入 proxyInvoke 桥方法
+    implementation("org.ow2.asm:asm:9.7.1")
+    // quickjs JS 引擎（com.fongmi.quickjs.*）：仅编译期引用 wrapper-java API；
+    // 运行时 wrapper 由消费端提供（桌面 = shared jvmMain wrapper-java，Android = wrapper-android）
+    compileOnly("wang.harlon.quickjs:wrapper-java:3.2.3")
     // 单元测试：kotlin.test（JUnit4 runner）
     testImplementation(kotlin("test"))
 }

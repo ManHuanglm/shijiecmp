@@ -13,6 +13,13 @@ import com.shiping.desktop.data.spider.SpiderPlayInfo
 import com.shiping.desktop.util.AppLog
 import com.shiping.desktop.util.Constants
 import com.shiping.shared.repository.VodRepository as VodRepositoryContract
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+
+/** 单源搜索超时（对齐 FongMi TIMEOUT_SEARCH）：卡死源超时回报，不再拖死整轮聚合搜索 */
+private const val SEARCH_TIMEOUT_MILLIS = 30_000L
 
 /**
  * 视频数据仓库（对齐 app VodRepository）：CMS 接口源走 CmsClient，
@@ -83,38 +90,42 @@ class VodRepository(
         }.associateBy { it.vodId }
     }
 
-    /** 在单个 API 源上搜索（含详情补全），失败时返回带 error 的分组，不抛异常 */
+    /** 在单个 API 源上搜索（含详情补全，30 秒硬超时），失败时返回带 error 的分组，不抛异常 */
     override suspend fun searchOneSource(
         source: ApiSourceEntity,
         keyword: String,
         page: Int,
     ): SearchGroupData = runCatching {
-        val response = search(keyword, page = page, url = source.url)
-        val list = if (source.isSpider()) {
-            // 爬虫源：结果自带封面与备注，无需详情补全
-            response.list
-        } else {
-            val detailMap = runCatching {
-                getDetails(response.list.map { it.vodId }, url = source.url)
-            }.getOrDefault(emptyMap())
-            response.list.map { vod ->
-                detailMap[vod.vodId]?.let { vod.mergeWithDetail(it) } ?: vod
+        withTimeout(SEARCH_TIMEOUT_MILLIS) {
+            val response = search(keyword, page = page, url = source.url)
+            val list = if (source.isSpider()) {
+                // 爬虫源：结果自带封面与备注，无需详情补全
+                response.list
+            } else {
+                val detailMap = runCatching {
+                    getDetails(response.list.map { it.vodId }, url = source.url)
+                }.getOrDefault(emptyMap())
+                response.list.map { vod ->
+                    detailMap[vod.vodId]?.let { vod.mergeWithDetail(it) } ?: vod
+                }
             }
+            SearchGroupData(
+                sourceId = source.id,
+                sourceName = source.name,
+                sourceUrl = source.url,
+                results = list,
+                page = page,
+                hasMore = page < response.pageCount,
+                done = true,
+            )
         }
-        SearchGroupData(
-            sourceId = source.id,
-            sourceName = source.name,
-            sourceUrl = source.url,
-            results = list,
-            page = page,
-            hasMore = page < response.pageCount,
-        )
     }.getOrElse { e ->
         SearchGroupData(
             sourceId = source.id,
             sourceName = source.name,
             sourceUrl = source.url,
-            error = e.message ?: "搜索失败",
+            error = if (e is TimeoutCancellationException) "搜索超时（源无响应）" else e.message ?: "搜索失败",
+            done = true,
         )
     }
 
@@ -209,8 +220,33 @@ class VodRepository(
         if (vod == null) {
             // 详情空数据静默失败难排查：记录还原 id 与返回体特征
             AppLog.w("VodRepository", "爬虫详情为空 key=${site.spiderKey} vodId=$vodId realId=$realId jsonLen=${json.length} head=${json.take(180)}")
+            // 爬虫业务提示（如体育源「比赛尚未开始」）优先于笼统失败文案
+            SpiderMapper.parseDetailMessage(json)?.let { throw IllegalStateException(it) }
         }
         return vod
+    }
+
+    /**
+     * 爬虫 action 协议：网盘源「登入自己网盘 / 清除xxCookie」等列表项。
+     * 按生态约定组装 {"action":..,"id":..,"vod_id":..} 交爬虫处理，返回提示文本（可空）。
+     */
+    override suspend fun spiderAction(sourceUrl: String, vodId: Int, action: String): String {
+        val site = getSite(sourceUrl)?.takeIf { it.isSpider() } ?: return ""
+        val realId = SpiderIdRegistry.toRealId(site.url, vodId) ?: vodId.toString()
+        val actionJson = "{\"action\":\"$action\",\"id\":\"$realId\",\"vod_id\":\"$realId\"}"
+        return DesktopSpiderRuntime.actionContent(site.jarUrl, site.spiderKey, ext = site.ext, siteKey = site.url, action = actionJson)
+    }
+
+    /**
+     * 网盘配置推送：把 Cookie/Token 经爬虫代理协议（do=<drive>&type=input&推送=<值>）
+     * 进程内直调写入网盘爬虫自身状态（与扫码推送页同链路）。
+     * 需对应网盘 jar 已加载（进过一次网盘源），无处理器响应时报错提示。
+     */
+    override suspend fun pushPanCookie(drive: String, value: String): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            check(DesktopSpiderRuntime.pushPanInput(drive, value)) { "网盘源未就绪，请先进入一次网盘源页面再保存" }
+            "保存成功"
+        }
     }
 
     // endregion

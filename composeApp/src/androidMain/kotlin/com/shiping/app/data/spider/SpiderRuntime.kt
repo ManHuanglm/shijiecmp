@@ -2,6 +2,8 @@ package com.shiping.app.data.spider
 
 import android.content.Context
 import android.util.Log
+import com.fongmi.chaquo.Loader
+import com.shiping.desktop.data.repository.ClanPaths
 import com.shiping.shared.spider.SpiderEngine
 import com.shiping.shared.spider.SpiderProxyBridge
 import com.shiping.shared.spider.SpiderProxyServer
@@ -64,6 +66,14 @@ object SpiderRuntime : SpiderEngine {
     /** 注入宿主上下文（AppContainer 初始化时调用），同时安装代理桥并启动本地代理服务 */
     fun init(context: Context) {
         appContext = context.applicationContext
+        // 本地包根目录候选：TVBox 约定存储根（/sdcard）+ 应用专属目录
+        ClanPaths.setRelativeRoots(
+            android.os.Environment.getExternalStorageDirectory(),
+            File("/sdcard"),
+            context.getExternalFilesDir(null),
+            context.filesDir,
+        )
+        installSpiderThreadGuard()
         SpiderProxyServer.install(
             SpiderProxyBridge(
                 onPortChanged = { port ->
@@ -91,6 +101,27 @@ object SpiderRuntime : SpiderEngine {
             ),
         )
         SpiderProxyServer.start()
+    }
+
+    /**
+     * 爬虫线程异常守卫：payload 爬虫 jar 内自建线程池（pool-N-*）跑 native/解析逻辑时，
+     * 未捕获异常（如 jar 自带 .so 缺失的 UnsatisfiedLinkError）不经宿主协程管控，
+     * 默认处理器会直接杀死整个进程（2026-10-14 模拟器聚合搜索实证）。守卫按线程名与
+     * 调用栈包名识别爬虫来源线程仅记日志，其余异常仍交系统默认处理（正常闪退路径不变）。
+     */
+    private fun installSpiderThreadGuard() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            val fromSpider = thread.name.startsWith("pool-") ||
+                throwable.stackTrace.any {
+                    it.className.startsWith("com.github.catvod") || it.className.startsWith("com.fongmi")
+                }
+            if (fromSpider) {
+                Log.w(TAG, "爬虫线程异常拦截 thread=${thread.name}: ${throwable.javaClass.simpleName}: ${throwable.message}")
+            } else {
+                previous?.uncaughtException(thread, throwable)
+            }
+        }
     }
 
     /**
@@ -165,7 +196,11 @@ object SpiderRuntime : SpiderEngine {
             invoke(spider, "detailContent", listOf(id))
         }
 
-    /** 搜索（TVBox 标准签名为 int pg） */
+    /**
+     * 搜索（对齐 FongMi：第 1 页优先两参——生态大量源只实现两参 searchContent，
+     * 三参是基类空桩直接返回空串，固定三参调用会让这些源静默无结果；
+     * 两参返回空再回退三参，兼容只实现三参的源，翻页固定走三参）。
+     */
     override suspend fun searchContent(
         jarUrl: String,
         key: String,
@@ -174,7 +209,12 @@ object SpiderRuntime : SpiderEngine {
         ext: String,
         siteKey: String,
     ): String = invokeSafely(jarUrl, key, ext, siteKey) { spider ->
-        invoke(spider, "searchContent", keyword, false, pg)
+        if (pg > 1) {
+            invoke(spider, "searchContent", keyword, false, pg)
+        } else {
+            invoke(spider, "searchContent", keyword, false).takeIf { it.isNotBlank() }
+                ?: invoke(spider, "searchContent", keyword, false, pg)
+        }
     }
 
     /** 播放信息 */
@@ -201,7 +241,7 @@ object SpiderRuntime : SpiderEngine {
         withContext(Dispatchers.IO) {
             runCatching { action(getSpider(jarUrl, key, ext, siteKey.ifBlank { key })) }.getOrElse { throwable ->
                 val cause = (throwable as? InvocationTargetException)?.targetException ?: throwable
-                Log.w(TAG, "爬虫调用失败 key=$key: $cause")
+                Log.w(TAG, "爬虫调用失败 key=$key: $cause", cause)
                 throw IllegalStateException(
                     "爬虫调用失败 key=$key: ${cause.javaClass.simpleName}: ${cause.message ?: "未知原因"}",
                     cause,
@@ -216,6 +256,31 @@ object SpiderRuntime : SpiderEngine {
      */
     private fun getSpider(jarUrl: String, key: String, ext: String, siteKey: String = key): Any {
         val context = appContext ?: error("SpiderRuntime 未初始化")
+        // JS 爬虫（api 为 .js 地址、无 jar）：quickjs 引擎（FongMi 移植），jar 链路之前分流
+        if (isJsScript(key)) {
+            val cacheKey = "js|$key|$ext|$siteKey"
+            spiders[cacheKey]?.let { return it }
+            synchronized(this) {
+                spiders[cacheKey]?.let { return it }
+                val spider = JsSpiderLoader.create(localizeScriptUrl(key), siteKey)
+                spider.init(context, localizeExt(ext))
+                spiders[cacheKey] = spider
+                return spider
+            }
+        }
+        // PY 爬虫（drpy .py 脚本）：Chaquopy 内嵌 Python 引擎（chaquo 模块，FongMi 移植方案）
+        if (isPyScript(key)) {
+            val cacheKey = "py|$key|$ext|$siteKey"
+            spiders[cacheKey]?.let { return it }
+            synchronized(this) {
+                spiders[cacheKey]?.let { return it }
+                val spider = Loader().spider(localizeScriptUrl(key))
+                spider.siteKey = siteKey
+                spider.init(context, localizeExt(ext))
+                spiders[cacheKey] = spider
+                return spider
+            }
+        }
         require(jarUrl.isNotBlank() && key.isNotBlank()) { "爬虫源缺少 jar 或 key" }
         val cacheKey = "$jarUrl|$key|$ext|$siteKey"
         spiders[cacheKey]?.let { return it }
@@ -250,6 +315,8 @@ object SpiderRuntime : SpiderEngine {
     }
 
     private fun createSpider(context: Context, jarPath: String, key: String, ext: String, siteKey: String): Any {
+        // 本地包 ext 内 clan:// 引用翻译为本地代理地址（实例缓存键用未翻译原串，跨重启端口无关）
+        val ext = localizeExt(ext)
         // 首次找类失败时重载 classloader 再试一轮：锁壳 jar 的解密由壳在 Init.init 中完成，
         // 偶发失败（网络/时序）会导致真实类未解出，重建 loader 重新走一次解密引导
         val loader = getLoader(context, jarPath)
@@ -286,9 +353,50 @@ object SpiderRuntime : SpiderEngine {
         Log.w(TAG, "爬虫类查找失败，重载 classloader 重试: $jarPath")
         return getLoader(context, jarPath)
     }
+    /** js 脚本 api：http(s) 远程或本地包地址（clan://、file://）的 .js 文件 */
+    private fun isJsScript(key: String): Boolean =
+        isScriptPath(key) && key.substringBefore('?').endsWith(".js")
+
+    /** py 脚本 api：http(s) 远程或本地包地址（clan://、file://）的 .py 文件 */
+    private fun isPyScript(key: String): Boolean =
+        isScriptPath(key) && key.substringBefore('?').endsWith(".py")
+
+    private fun isScriptPath(key: String): Boolean = key.startsWith("http") ||
+        key.startsWith(ClanPaths.PREFIX) || key.startsWith("file:")
+
+    /** 本地包脚本地址翻译为本地代理 http 地址（quickjs/py 引擎经 okhttp 拉脚本） */
+    private fun localizeScriptUrl(key: String): String =
+        if (key.startsWith(ClanPaths.PREFIX)) ClanPaths.toProxyHttp(key, SpiderProxyServer.listeningPort) else key
+
+    /** ext 内 clan://localhost/ 引用翻译为本地代理 /file 地址（jar/引擎经 okhttp 抓取本地文件） */
+    private fun localizeExt(ext: String): String {
+        val port = SpiderProxyServer.listeningPort
+        if (port <= 0 || !ext.contains(ClanPaths.PREFIX)) return ext
+        return CLAN_REF.replace(ext) { match -> ClanPaths.toProxyHttp(match.value, port) }
+    }
+
+    /** ext 内 clan 引用匹配：止于引号/$（$$$ 分隔段），容忍路径内空格与中文 */
+    private val CLAN_REF = Regex("clan://localhost/[^\$\'\"]+")
 
     /** jar 本地缓存：存在且魔数/md5 合法直接复用，否则经 OkHttp 下载（失败抛异常由上层兜底） */
     private fun ensureJar(context: Context, jarUrl: String): String {
+        // 本地包 jar（clan://localhost/、file:// 或盘符路径）：复制到应用缓存后加载
+        //（Android 10+ 禁止加载应用可写存储上的 dex，共享存储文件须落地应用目录再置只读）
+        ClanPaths.toFile(jarUrl.substringBefore(";").trim())?.let { local ->
+            if (!local.isFile) error("本地爬虫 jar 不存在: ${local.absolutePath}")
+            val expectedMd5 = jarMd5(jarUrl)
+            if (expectedMd5 != null && fileMd5(local) != expectedMd5) {
+                error("本地爬虫 jar md5 校验失败: ${local.name}")
+            }
+            val dir = File(context.filesDir, JAR_DIR).apply { mkdirs() }
+            val cached = File(dir, md5(jarUrl) + ".jar")
+                local.copyTo(cached, overwrite = true)
+                // 自杀守卫中和：改写 dex 内 killProcess 字符串，守卫线程届时 NoSuchMethodError 自然死亡
+                cached.writeBytes(com.shiping.shared.spider.DexGuardPatch.patchJar(cached.readBytes()))
+            if (!cached.setReadOnly()) Log.w(TAG, "爬虫 jar 置只读失败: ${cached.name}")
+            jarFiles[jarUrl] = cached.absolutePath
+            return cached.absolutePath
+        }
         jarFiles[jarUrl]?.let { path -> if (File(path).exists()) return path }
         val dir = File(context.filesDir, JAR_DIR).apply { mkdirs() }
         val file = File(dir, md5(jarUrl) + ".jar")

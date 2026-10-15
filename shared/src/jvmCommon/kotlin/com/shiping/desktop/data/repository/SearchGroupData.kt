@@ -11,4 +11,8 @@ data class SearchGroupData(
     val error: String? = null,
     val page: Int = 1,
     val hasMore: Boolean = true,
+    /** 该源查询是否已返回：false=占位未完成；返回后仍无数据则不展示该分组 */
+    val done: Boolean = false,
+    /** 该源翻页加载中（触底加载更多，防重复触发） */
+    val loadingMore: Boolean = false,
 )

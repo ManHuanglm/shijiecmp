@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,7 +53,7 @@ fun HistoryScreen(app: AppViewModel) {
             Spacer(Modifier.weight(1f))
             if (isEpisodeDownloadSupported) {
                 IconButton(onClick = { app.push(Screen.Downloads) }) {
-                    Icon(Icons.Filled.Download, contentDescription = "下载管理")
+                    Icon(Icons.Outlined.Download, contentDescription = "下载管理")
                 }
             }
             if (history.isNotEmpty()) {
@@ -163,7 +163,7 @@ private fun FavoriteCard(favorite: FavoriteEntity, onOpen: () -> Unit, onRemove:
             modifier = Modifier.align(Alignment.TopEnd).padding(2.dp),
         ) {
             Icon(
-                Icons.Filled.Delete,
+                Icons.Outlined.Delete,
                 contentDescription = "取消收藏",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )

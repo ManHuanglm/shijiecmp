@@ -155,11 +155,13 @@ class WebSniffer {
         if (url == initialUrl) return false
         if (url.length > MAX_CHECK_URL_LENGTH) return false
         if (url.startsWith("data:") || url.startsWith("blob:")) return false
+        val lowerUrl = url.substringBefore("#").lowercase()
+        // 已知解析失败的占位媒体（yparse 404 提示片等）不算命中：继续嗅探等待真实直链
+        if (PLACEHOLDER_MARKERS.any { lowerUrl.contains(it) }) return false
         val path = url.substringBefore("?").lowercase()
         if (Constants.DIRECT_STREAM_SUFFIXES.any { path.endsWith(it) }) return true
         // query 携带媒体标记也算命中（宽松判断）；
         // 不含易误报的 .ts（如 xxx.types、font.ts）
-        val lowerUrl = url.substringBefore("#").lowercase()
         return MEDIA_QUERY_MARKERS.any { lowerUrl.contains(it) }
     }
 
@@ -179,5 +181,8 @@ class WebSniffer {
 
         /** query 中携带即算媒体地址的标记（不含易误报的 .ts） */
         private val MEDIA_QUERY_MARKERS = listOf(".m3u8", ".mp4", ".flv")
+
+        /** 解析失败占位媒体特征（yparse 站 404 提示片等），不作为嗅探命中 */
+        private val PLACEHOLDER_MARKERS = listOf("/404_", "yparse")
     }
 }

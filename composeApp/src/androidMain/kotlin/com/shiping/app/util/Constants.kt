@@ -155,27 +155,6 @@ object Constants {
 
     // endregion
 
-    // region 广告过滤
-
-    /** m3u8 广告切片 URL 关键词（命中即为广告） */
-    val AD_URL_KEYWORDS = listOf(
-        "ad.", "ads.", "advert", "promo", "preroll",
-        "/ad/", "/ads/", "/adverts", "/promoid",
-        "adcdn", "advideo", "admaster", "adtech",
-        "doubleclick", "googlesyndication", "analytics",
-    )
-
-    /** 分块启发式：块平均切片时长与主内容块比值低于该值视为广告块 */
-    const val AD_DURATION_RATIO_MIN = 0.6f
-
-    /** 分块启发式：块平均切片时长与主内容块比值高于该值视为广告块 */
-    const val AD_DURATION_RATIO_MAX = 1.8f
-
-    /** 分块启发式：候选广告块的最大总时长（秒），超过则认定为正片不删 */
-    const val AD_BLOCK_MAX_TOTAL_S = 180
-
-    // endregion
-
     // region 缓冲线路
 
     /** 缓冲线路倍数默认值（同时连接数，1=单连接不加速） */
@@ -216,19 +195,6 @@ object Constants {
 
     /** 下载对话框剧集网格高度（懒加载滚动区） */
     val DOWNLOAD_DIALOG_GRID_HEIGHT = 320.dp
-
-    /** 下载进度轮询间隔毫秒 */
-    const val DOWNLOAD_PROGRESS_POLL_INTERVAL_MS = 1_000L
-
-    /** 下载限速档位（KB/s），0 表示不限速 */
-    val DOWNLOAD_SPEED_OPTIONS = listOf(0, 512, 1024, 2048, 5120)
-
-    /** 下载限速档位显示文本 */
-    val DOWNLOAD_SPEED_LABELS = listOf("不限速", "512 KB/s", "1 MB/s", "2 MB/s", "5 MB/s")
-
-    /** 批量下载并发数范围 */
-    const val DOWNLOAD_PARALLEL_MIN = 1
-    const val DOWNLOAD_PARALLEL_MAX = 5
 
     // endregion
 

@@ -3,6 +3,16 @@ package com.shiping.desktop.player
 import com.shiping.desktop.di.AppContainer
 import com.shiping.desktop.data.prefs.DesktopPrefs
 import com.shiping.desktop.ui.InPageOverlayHost
+import com.shiping.desktop.ui.player.behavior.CONTROLS_AUTO_HIDE_MS
+import com.shiping.desktop.ui.player.behavior.GESTURE_CANCEL_PX_DESKTOP
+import com.shiping.desktop.ui.player.behavior.GESTURE_DECIDE_PX_DESKTOP
+import com.shiping.desktop.ui.player.behavior.GESTURE_SEEK_MAX_MS
+import com.shiping.desktop.ui.player.behavior.GESTURE_SEEK_MS_PER_PX
+import com.shiping.desktop.ui.player.behavior.GestureText
+import com.shiping.desktop.ui.player.behavior.MuteSession
+import com.shiping.desktop.ui.player.behavior.PlayerGestureSession
+import com.shiping.desktop.ui.player.VideoScaleMode
+import com.shiping.shared.prefs.PrefsKeys
 import com.shiping.desktop.util.AppLog
 import com.shiping.desktop.util.Constants
 import java.awt.AWTEvent
@@ -42,6 +52,7 @@ import javax.swing.JPopupMenu
 import javax.swing.JWindow
 import javax.swing.SwingUtilities
 import javax.swing.Timer
+import kotlin.math.abs
 
 /** 播放器可选清晰度（与 B 站 qn 解耦的展示模型） */
 data class PlayerQuality(val label: String, val qn: Int)
@@ -86,6 +97,8 @@ data class PlayerOverlayConfig(
     val introTarget: IntroMark.Mark? = null,
     /** 下载当前集回调（空时点击提示不支持） */
     val onDownloadEpisode: ((Int) -> Unit)? = null,
+    /** 下载全部集回调（空时选集面板隐藏「下载全部」按钮） */
+    val onDownloadAllEpisodes: (() -> Unit)? = null,
     /** 直播频道列表回调（▦ 按钮优先走它，按钮转「频道列表」语义；空时走默认选集面板） */
     val onChannelList: Runnable? = null,
     /** 播放设置右缘滑出回调（⚙ 按钮优先走它；空时走默认内核面板） */
@@ -105,6 +118,8 @@ class PlayerOverlay(
     video: Component?,
     private val controller: PlayerController,
     var windowActions: PlayerWindowActions? = null,
+    /** 独立播放窗口（PlayerFrame）：完整布局 + 保留小窗/最大化窗口动作；页内播放为 false（紧凑/全屏两形态） */
+    private val standalone: Boolean = false,
 ) : JLayeredPane(), InPageOverlayHost {
 
     private val prefs get() = AppContainer.get().prefs
@@ -156,6 +171,10 @@ class PlayerOverlay(
     private val nextButton = overlayButton("▶|", fixedSize = true)
     private val danmakuButton = overlayButton("弹", fixedSize = true)
     private val speedButton = overlayButton("x1.0")
+    private val qualityButton = overlayButton("清晰度").apply { isVisible = false }
+    private val scaleButton = overlayButton("画面")
+    private val muteButton = overlayButton("🔊", fixedSize = true).apply { toolTipText = "静音" }
+    private val pinButton = overlayIconButton("📌", "窗口置顶")
     private val fullscreenButton = overlayIconButton("⤢", "全屏")
     private val miniButton = overlayIconButton("⧉", "小窗播放")
     private val maximizeButton = overlayButton("▢", fixedSize = true)
@@ -169,7 +188,6 @@ class PlayerOverlay(
     private val kernelButton = overlayIconButton("⚡", "播放内核")
     private val subtitleButton = overlayIconButton("💬", "字幕")
     private val settingsButton = overlayIconButton("⚙", "播放设置")
-    private val clockLabel = smallLabel(" ")
     private val lockButton = overlayIconButton("🔒", "锁定")
     private val recordIntroButton = overlayIconButton("⚑", "记录片头")
     private val episodeButton = overlayIconButton("▦", "选集")
@@ -177,7 +195,6 @@ class PlayerOverlay(
     private val timerButton = overlayIconButton("⏱", "定时关闭")
     private val multiThreadButton = overlayIconButton("☰", "多线程配置")
     private val shareButton = overlayIconButton("⤴", "分享")
-    private val castButton = overlayIconButton("📺", "投屏")
     private val seekBar = SeekBar()
 
     /** 顶栏/分辨率行/中央行后半段/底部堆栈（锁定时整体隐藏，需持有引用） */
@@ -192,6 +209,9 @@ class PlayerOverlay(
 
     /** 控制层宿主窗口（独立原生窗口，规避原生视频面覆盖轻量组件） */
     private var controlsWindow: JWindow? = null
+
+    /** 缓冲转圈宿主窗口（独立原生窗口：控制层隐藏时转圈仍显示，且不被 HWND 视频面覆盖） */
+    private var bufferingWindow: JWindow? = null
 
     /** 底部面板窗口（选集/源列表/定时/多线程/分享共用，同一时刻最多一个） */
     private var sheetWindow: JWindow? = null
@@ -235,14 +255,15 @@ class PlayerOverlay(
                     MINI_HEIGHT,
                 )
             } else {
-                savedWindowBounds = null
-                w.isAlwaysOnTop = false
-                w.bounds = saved
-            }
+            savedWindowBounds = null
+            // 小窗还原：若用户开启过置顶则保持，否则取消（与 📌 按钮状态一致）
+            w.isAlwaysOnTop = pinnedByUser
+            w.bounds = saved
         }
-
-        override val isFullscreen: Boolean get() = savedWindowBounds != null
     }
+
+    override val isFullscreen: Boolean get() = savedWindowBounds != null
+}
 
     /** 页内默认动作保存的主窗口边界（最大化/小窗还原用） */
     private var savedWindowBounds: Rectangle? = null
@@ -274,6 +295,10 @@ class PlayerOverlay(
             hideSheet()
             hideSidePanel()
             controlsWindow?.isVisible = false
+            bufferingWindow?.let { window ->
+                window.isAlwaysOnTop = false
+                window.isVisible = false
+            }
             controlsVisible = false
             isVisible = false
             controller.setSurfaceVisible(false)
@@ -284,7 +309,7 @@ class PlayerOverlay(
     }
 
     /** 控制层自动隐藏定时器（播放中 3s 无操作隐藏） */
-    private val hideTimer = Timer(AUTO_HIDE_DELAY_MS) { hideControls() }
+    private val hideTimer = Timer(CONTROLS_AUTO_HIDE_MS.toInt()) { hideControls() }
 
     /** 控制层状态轮询（播放态/进度/分辨率/错误，250ms）；可见时顺带贴齐视频区（Compose 重排等事件漏通知场景防错位点空） */
     private val syncTimer = Timer(UI_SYNC_INTERVAL_MS) {
@@ -308,18 +333,47 @@ class PlayerOverlay(
     @Volatile
     private var isLocked = false
 
-    /** 顶栏时钟分钟缓存（分钟变化才刷新，避免每 250ms 重排） */
-    private var lastClockMinute = Long.MIN_VALUE
-
-    /** 顶栏时钟格式 */
-    private val clockFormatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
-
     /** 拖动进度起始位置（松手回起点取消 seek 用） */
     private var dragStartMs = 0L
 
+    /** 手势最近拖动点（视频面坐标） */
+    private var lastDragX = 0
+    private var lastDragY = 0
+
+    /** 拖动累计位移（像素，仅用于长按倍速中止判定；锁向与目标计算在共享会话内） */
+    private var gestureDx = 0
+    private var gestureDy = 0
+
+    /** 视频面拖动手势会话（共享行为，每次按下重建以取最新「松手取消」设置） */
+    private var gestureSession: PlayerGestureSession? = null
+
+    /** 会话级播放音量（0-100；内核无音量回读，本地记录） */
+    private var sessionVolume = 100
+
+    /** 会话级静音（共享行为）：静音=音量 0，解除恢复；调高音量自动解除 */
+    private val muteSession = MuteSession(::setSessionVolume).also { session ->
+        session.onMuteChanged = { muted ->
+            muteButton.text = if (muted) "🔇" else "🔊"
+            muteButton.toolTipText = if (muted) "取消静音" else "静音"
+        }
+    }
+
+    /** 当前倍速（与倍速按钮文案同步；长按倍速松手恢复用） */
+    private var currentRate = 1f
+
+    /** 画面调节模式（KEY_VIDEO_SCALE 持久化，跨会话生效） */
+    private var videoScaleMode = VideoScaleMode.fromId(prefs.getString(PrefsKeys.KEY_VIDEO_SCALE, VideoScaleMode.FIT.id))
+
+    /** 长按倍速触发定时器（按住不动超过阈值进入倍速，拖动/松手取消） */
+    private val longPressTimer = Timer(LONG_PRESS_DELAY_MS) { enterSpeedBoost() }
+
+    /** 长按倍速生效中 */
+    private var isSpeedBoost = false
+
     init {
         layout = null
-        // 视频面垫底；控制层放独立 JWindow（见 controlsWindow）
+        // 视频面垫底；控制层与缓冲转圈各自放独立 JWindow（见 controlsWindow/bufferingWindow）：
+        // mpv/MDK 以 HWND 渲染视频，根层轻量组件会被画面覆盖，必须用独立原生窗口承载
         add(videoPane, DEFAULT_LAYER)
 
         buildControlLayout()
@@ -331,10 +385,12 @@ class PlayerOverlay(
         prevButton.isVisible = false
         nextButton.isVisible = false
         updateSpeedLabel(1f)
+        scaleButton.text = videoScaleMode.label
         applyLayoutMode()
 
         hideTimer.isRepeats = false
         hintTimer.isRepeats = false
+        longPressTimer.isRepeats = false
         syncTimer.isRepeats = true
 
         // 事件绑定
@@ -343,6 +399,7 @@ class PlayerOverlay(
         nextButton.toolTipText = "下一集"
         danmakuButton.toolTipText = "弹幕（暂未支持）"
         speedButton.toolTipText = "倍速"
+        scaleButton.toolTipText = "画面调节"
         maximizeButton.toolTipText = "最大化"
         playButton.addActionListener { controller.togglePlayPause() }
         prevButton.addActionListener { config.onPrevEpisode?.run() }
@@ -350,8 +407,13 @@ class PlayerOverlay(
         seekBackButton.addActionListener { seekBy(-1) }
         seekForwardButton.addActionListener { seekBy(1) }
         speedButton.addActionListener { showSpeedPopup() }
+        scaleButton.addActionListener { showScalePopup() }
+        qualityButton.addActionListener { showQualityPopup() }
+        muteButton.addActionListener { toggleMute() }
         danmakuButton.addActionListener { showSeekHint("桌面版暂未支持弹幕") }
         fullscreenButton.addActionListener { actions.toggleFullscreen() }
+        // 📌 手动置顶开关：不自动置顶，由用户决定播放器是否浮于其它程序之上
+        pinButton.addActionListener { togglePinnedByUser() }
         miniButton.addActionListener { actions.toggleMiniWindow() }
         maximizeButton.addActionListener { actions.toggleMaximize() }
         backButton.addActionListener {
@@ -386,20 +448,19 @@ class PlayerOverlay(
         timerButton.addActionListener { showTimerSheet() }
         multiThreadButton.addActionListener { showMultiThreadSheet() }
         shareButton.addActionListener { showShareSheet() }
-        castButton.addActionListener { showSeekHint("桌面版暂未支持投屏") }
     }
 
     // region 布局
 
-    /** 控制层布局：顶栏(返回/片名/截图/内核/字幕/设置/时间) + 分辨率行 +
-     *  中央(最左锁定 + 后退10s/缓冲/前进10s 均分) + 底部三排(时长/进度/控制排) */
+    /** 控制层布局：顶栏(返回/片名 + 锁定/功能排) + 分辨率行 + 中央(后退10s/提示/前进10s) +
+     *  底部三排(时长/进度/控制排)；缓冲转圈独立于本布局在视频面根层居中 */
     private fun buildControlLayout() {
         val gbc = GridBagConstraints().apply {
             weightx = 1.0
             insets = Insets(6, 10, 4, 10)
         }
 
-        // 顶栏：左 返回+片名集数；右 截图/内核/字幕/设置/时钟
+        // 顶栏：左 返回+片名集数；右 锁定/字幕/截图/定时/多线程/分享/内核/设置（独立窗口附加 小窗/最大化）
         gbc.gridy = 0
         gbc.fill = GridBagConstraints.HORIZONTAL
         gbc.anchor = GridBagConstraints.NORTH
@@ -410,13 +471,11 @@ class PlayerOverlay(
             add(Box.createHorizontalGlue())
         }
         val topEast = Box.createHorizontalBox().apply {
-            add(screenshotButton)
-            add(Box.createHorizontalStrut(CONTROL_GAP_PX))
-            add(kernelButton)
+            add(lockButton)
             add(Box.createHorizontalStrut(CONTROL_GAP_PX))
             add(subtitleButton)
             add(Box.createHorizontalStrut(CONTROL_GAP_PX))
-            add(settingsButton)
+            add(screenshotButton)
             add(Box.createHorizontalStrut(CONTROL_GAP_PX))
             add(timerButton)
             add(Box.createHorizontalStrut(CONTROL_GAP_PX))
@@ -424,9 +483,15 @@ class PlayerOverlay(
             add(Box.createHorizontalStrut(CONTROL_GAP_PX))
             add(shareButton)
             add(Box.createHorizontalStrut(CONTROL_GAP_PX))
-            add(castButton)
+            add(kernelButton)
             add(Box.createHorizontalStrut(CONTROL_GAP_PX))
-            add(clockLabel)
+            add(settingsButton)
+            if (standalone) {
+                add(Box.createHorizontalStrut(CONTROL_GAP_PX))
+                add(miniButton)
+                add(Box.createHorizontalStrut(CONTROL_GAP_PX))
+                add(maximizeButton)
+            }
         }
         topBar.add(topWest, java.awt.BorderLayout.WEST)
         topBar.add(topEast, java.awt.BorderLayout.EAST)
@@ -438,7 +503,7 @@ class PlayerOverlay(
         topRow.add(statusLabel, java.awt.BorderLayout.EAST)
         controlPane.add(topRow, gbc)
 
-        // 中央行：最左锁定按钮；后退10s / 缓冲动画·提示 / 前进10s 贴中央均分排列
+        // 中央行：后退10s / 缓冲动画·提示 / 前进10s 贴中央均分排列（缓冲态整层隐藏只留根层转圈）
         gbc.gridy = 2
         gbc.weighty = 1.0
         gbc.fill = GridBagConstraints.BOTH
@@ -448,7 +513,6 @@ class PlayerOverlay(
         cc.gridx = 0
         cc.gridy = 0
         centerStack.add(seekHintLabel, cc)
-        centerStack.add(bufferingIndicator, cc)
         centerBox.apply {
             add(Box.createHorizontalGlue())
             add(seekBackButton)
@@ -458,12 +522,7 @@ class PlayerOverlay(
             add(seekForwardButton)
             add(Box.createHorizontalGlue())
         }
-        val middleRow = JPanel(java.awt.BorderLayout()).apply {
-            isOpaque = false
-            add(lockButton, java.awt.BorderLayout.WEST)
-            add(centerBox, java.awt.BorderLayout.CENTER)
-        }
-        controlPane.add(middleRow, gbc)
+        controlPane.add(centerBox, gbc)
         gbc.weighty = 0.0
         gbc.fill = GridBagConstraints.HORIZONTAL
 
@@ -489,15 +548,19 @@ class PlayerOverlay(
                 add(Box.createHorizontalStrut(CONTROL_GAP_PX))
                 add(sourceButton)
                 add(Box.createHorizontalStrut(CONTROL_GAP_PX))
+                add(qualityButton)
+                add(Box.createHorizontalStrut(CONTROL_GAP_PX))
+                add(scaleButton)
+                add(Box.createHorizontalStrut(CONTROL_GAP_PX))
                 add(speedButton)
+                add(Box.createHorizontalStrut(CONTROL_GAP_PX))
+                add(muteButton)
                 add(Box.createHorizontalStrut(CONTROL_GAP_PX))
                 add(playButton)
                 add(Box.createHorizontalStrut(CONTROL_GAP_PX))
+                add(pinButton)
+                add(Box.createHorizontalStrut(CONTROL_GAP_PX))
                 add(fullscreenButton)
-                add(Box.createHorizontalStrut(CONTROL_GAP_PX))
-                add(miniButton)
-                add(Box.createHorizontalStrut(CONTROL_GAP_PX))
-                add(maximizeButton)
             }
             add(left, java.awt.BorderLayout.WEST)
             add(right, java.awt.BorderLayout.EAST)
@@ -522,11 +585,85 @@ class PlayerOverlay(
 
     // region 手势
 
-    /** 视频面手势：移动/单击唤出控制层，双击全屏 */
+    /**
+     * 视频面手势：移动/单击唤出控制层，双击全屏；
+     * 按住拖动横向调进度（含松手取消）/竖向调音量；按住不动进入长按倍速，松手恢复。
+     * 注：mpv/MDK 全屏接管 HWND 后视频面鼠标事件可能丢失（见 wakeControlsOnPointerMove），
+     * 手势在非全屏下最可靠。
+     */
     private fun bindVideoGestures() {
         val l = object : MouseAdapter() {
             override fun mouseMoved(e: MouseEvent) = showControls()
-            override fun mouseDragged(e: MouseEvent) = showControls()
+
+            override fun mousePressed(e: MouseEvent) {
+                if (e.button != MouseEvent.BUTTON1) return
+                lastDragX = e.x
+                lastDragY = e.y
+                gestureDx = 0
+                gestureDy = 0
+                // 每次按下重建会话：锁向/取消判定在共享 PlayerGestureSession，设置取当下值
+                gestureSession = PlayerGestureSession(
+                    PlayerGestureSession.Options(
+                        decidePx = GESTURE_DECIDE_PX_DESKTOP,
+                        cancelPx = GESTURE_CANCEL_PX_DESKTOP,
+                        seekMsPerPx = GESTURE_SEEK_MS_PER_PX,
+                        seekMaxMs = GESTURE_SEEK_MAX_MS,
+                        enableBrightness = false,
+                        enableSeekCancel = isSeekCancelEnabled,
+                    ),
+                ).also { session ->
+                    session.start(
+                        startX = e.x.toFloat(),
+                        width = width.toFloat(),
+                        height = height.toFloat(),
+                        seekBaseMs = controller.timeMs.value,
+                        volumeBase = sessionVolume,
+                        brightnessBase = 0f,
+                    )
+                }
+                if (!isLocked && prefs.getFloat(DesktopPrefs.KEY_LONG_PRESS_SPEED, 0f) > 0f) {
+                    longPressTimer.start()
+                }
+            }
+
+            override fun mouseDragged(e: MouseEvent) {
+                showControls()
+                if (isLocked) return
+                val dx = e.x - lastDragX
+                val dy = e.y - lastDragY
+                lastDragX = e.x
+                lastDragY = e.y
+                gestureDx += dx
+                gestureDy += dy
+                if (isSpeedBoost) return
+                if (abs(gestureDx) > GESTURE_DECIDE_PX_DESKTOP || abs(gestureDy) > GESTURE_DECIDE_PX_DESKTOP) {
+                    longPressTimer.stop()
+                }
+                when (val feedback = gestureSession?.onDelta(dx.toFloat(), dy.toFloat(), controller.durationMs.value)) {
+                    is PlayerGestureSession.Feedback.Seek -> showSeekHint(feedback.text)
+                    is PlayerGestureSession.Feedback.Volume -> {
+                        sessionVolume = muteSession.onVolumeAdjusted(feedback.percent)
+                        showSeekHint(GestureText.volume(sessionVolume))
+                    }
+                    else -> Unit
+                }
+            }
+
+            override fun mouseReleased(e: MouseEvent) {
+                if (e.button != MouseEvent.BUTTON1) return
+                longPressTimer.stop()
+                if (isSpeedBoost) {
+                    exitSpeedBoost()
+                } else {
+                    when (val commit = gestureSession?.onEnd()) {
+                        is PlayerGestureSession.Commit.Seek -> controller.seekTo(commit.targetMs)
+                        PlayerGestureSession.Commit.CancelSeek -> showSeekHint(GestureText.SEEK_CANCELLED)
+                        null -> Unit
+                    }
+                }
+                gestureSession = null
+            }
+
             override fun mouseClicked(e: MouseEvent) {
                 if (e.clickCount == 2 && !isLocked) {
                     actions.toggleFullscreen()
@@ -537,6 +674,27 @@ class PlayerOverlay(
         }
         videoPane.addMouseListener(l)
         videoPane.addMouseMotionListener(l)
+    }
+
+    /** 「显示松手取消调整进度」设置（进度手势与进度条共用） */
+    private val isSeekCancelEnabled: Boolean
+        get() = prefs.getBoolean(DesktopPrefs.KEY_SHOW_SEEK_CANCEL, true)
+
+    /** 进入长按倍速（0 档/锁定不生效；需长按期间未拖动） */
+    private fun enterSpeedBoost() {
+        val rate = prefs.getFloat(DesktopPrefs.KEY_LONG_PRESS_SPEED, 0f)
+        if (rate <= 0f || isLocked || isSpeedBoost) return
+        isSpeedBoost = true
+        controller.setRate(rate)
+        showSeekHint(GestureText.speedBoost(rate))
+    }
+
+    /** 退出长按倍速：恢复倍速按钮当前档位 */
+    private fun exitSpeedBoost() {
+        if (!isSpeedBoost) return
+        isSpeedBoost = false
+        controller.setRate(currentRate)
+        showSeekHint(GestureText.speed(currentRate))
     }
 
     /** 控制层手势：悬停保持可见；移出后恢复自动隐藏 */
@@ -570,6 +728,7 @@ class PlayerOverlay(
             if (!isLocked && actions.isFullscreen) actions.toggleFullscreen()
         }
         bind(java.awt.event.KeyEvent.VK_F, "toggleFullscreen") { if (!isLocked) actions.toggleFullscreen() }
+        bind(java.awt.event.KeyEvent.VK_M, "toggleMute") { if (!isLocked) toggleMute() }
         getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).apply {
             put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_LEFT, 0), "seekBack")
             put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_RIGHT, 0), "seekForward")
@@ -605,12 +764,27 @@ class PlayerOverlay(
             if (raw.length > TITLE_MAX_CHARS) raw.take(TITLE_MAX_CHARS) + "…" else raw
         }
         episodeButton.toolTipText = if (config.onChannelList != null) "频道列表" else "选集"
+        // 清晰度钮：文案随当前清晰度（可见性由 applyLayoutMode 按形态与可选清晰度决定）
+        qualityButton.text = config.currentQuality?.label ?: "清晰度"
         applyLayoutMode()
     }
 
-    /** 倍速按钮文案 */
+    /** 倍速按钮文案（同步 currentRate，长按倍速松手恢复用） */
     fun updateSpeedLabel(rate: Float) {
+        currentRate = rate
         speedButton.text = "x%.1f".format(rate)
+    }
+
+    /** 静音切换（共享 MuteSession）：静音=音量 0（记住原音量），解除恢复 */
+    private fun toggleMute() {
+        muteSession.toggle(sessionVolume)
+        showSeekHint(if (muteSession.isMuted) GestureText.MUTED else GestureText.UNMUTED)
+    }
+
+    /** 应用会话音量并同步内核（0-100；静音解除由 MuteSession 统一处理） */
+    private fun setSessionVolume(percent: Int) {
+        sessionVolume = percent.coerceIn(0, 100)
+        controller.setVolume(sessionVolume)
     }
 
     /** 页面操作排全屏入口（与覆盖层全屏按钮/双击手势同动作；锁定中不响应） */
@@ -645,24 +819,39 @@ class PlayerOverlay(
                 controller.isBuffering.value -> "缓冲中…"
                 else -> " "
             }
-            // 缓冲动画：缓冲中显示并驱动旋转；缓冲期间强制唤出控制层（否则动画随控制层一起隐藏）
+            // 缓冲对齐手机端：转圈独立窗口承载（HWND 视频面之上、控制层窗口之下），缓冲中仍可呼出控制层
             val buffering = controller.isBuffering.value
-            bufferingIndicator.isVisible = buffering
-            if (buffering && !controlsVisible) showControls()
-            if (buffering && !bufferingIndicator.animator.isRunning) bufferingIndicator.animator.start()
-            if (!buffering && bufferingIndicator.animator.isRunning) bufferingIndicator.animator.stop()
+            if (buffering) {
+                ensureBufferingWindow()?.let { window ->
+                    syncBufferingWindow(window)
+                    // 仅全屏/小窗形态置顶（防被无边框全屏主窗口覆盖）；不抢焦点
+                    window.isAlwaysOnTop = pinnedMode
+                    if (!window.isVisible) window.isVisible = true
+                }
+                if (!bufferingIndicator.animator.isRunning) bufferingIndicator.animator.start()
+                // 缓冲中不再强制隐藏控制层：呼出状态由用户操作与自动隐藏计时决定，
+                // 控制层窗口置顶于转圈之上（缓冲转圈在控制组件下层）
+                if (controlsVisible) {
+                    ensureControlsWindow()?.let { window ->
+                        syncControlWindow(window)
+                        window.isAlwaysOnTop = pinnedMode
+                        if (!window.isVisible) window.isVisible = true
+                        window.toFront()
+                    }
+                }
+            } else {
+                bufferingWindow?.let { window ->
+                    window.isAlwaysOnTop = false
+                    window.isVisible = false
+                }
+                if (bufferingIndicator.animator.isRunning) bufferingIndicator.animator.stop()
+            }
             // 全屏按钮文案随窗口动作状态刷新（页内默认动作切换后同步）
             val fullscreenNow = actions.isFullscreen
             if (fullscreenNow != lastFullscreenState) {
                 lastFullscreenState = fullscreenNow
                 updateFullscreenState(fullscreenNow)
                 applyLayoutMode()
-            }
-            // 顶栏时钟（分钟变化才刷新）
-            val nowMinute = System.currentTimeMillis() / 60_000L
-            if (nowMinute != lastClockMinute) {
-                lastClockMinute = nowMinute
-                clockLabel.text = java.time.LocalTime.now().format(clockFormatter)
             }
             // 快进快退按钮（设置步长 0 时隐藏，图标固定、tooltip 随步长）
             val step = prefs.getInt(DesktopPrefs.KEY_SEEK_STEP, 10)
@@ -673,14 +862,20 @@ class PlayerOverlay(
                 seekBackButton.toolTipText = "快退${step}秒"
                 seekForwardButton.toolTipText = "快进${step}秒"
             }
-            // 控制层窗口兜底同步：初次显示/宿主拖动监听遗漏时对齐位置
+            // 控制层窗口兜底同步：初次显示/宿主拖动监听遗漏时对齐位置；置顶随全屏/小窗形态动态刷新
             if (controlsVisible) {
                 ensureControlsWindow()?.let { window ->
                     syncControlWindow(window)
-                    if (!window.isVisible) {
-                        window.isVisible = true
-                        controlPane.repaint()
-                    }
+                    window.isAlwaysOnTop = pinnedMode
+                    if (!window.isVisible) window.isVisible = true
+                }
+            }
+            // 缓冲转圈窗口跟随视频区（全屏切换/拖动窗口时同步）
+            if (controller.isBuffering.value) {
+                ensureBufferingWindow()?.let { window ->
+                    syncBufferingWindow(window)
+                    window.isAlwaysOnTop = pinnedMode
+                    if (!window.isVisible) window.isVisible = true
                 }
             }
         }
@@ -698,27 +893,37 @@ class PlayerOverlay(
 
     // region 控制层显隐与提示
 
-    /** 唤出控制层并重置自动隐藏计时 */
+    /** 唤出控制层并重置自动隐藏计时（缓冲中同样可呼出：转圈在控制层窗口之下） */
     private fun showControls() {
         if (isBackground) return
         if (!controlsVisible) {
             controlsVisible = true
             ensureControlsWindow()?.let { window ->
                 syncControlWindow(window)
+                // 仅全屏/小窗形态置顶；不抢焦点；toFront 保证盖在缓冲转圈窗口之上
+                window.isAlwaysOnTop = pinnedMode
                 window.isVisible = true
+                window.toFront()
                 controlPane.repaint()
             }
+        } else {
+            // 已可见时同样兜底提升（缓冲转圈窗口可能在其后显示过）
+            controlsWindow?.toFront()
         }
         if (controller.isPlaying.value) {
             hideTimer.restart()
         }
     }
 
-    /** 隐藏控制层（暂停/拖进度/锁定中不隐藏） */
+    /** 隐藏控制层（暂停/拖进度/锁定中不隐藏；缓冲中允许隐藏，只留转圈） */
     private fun hideControls() {
-        if (isLocked || !controller.isPlaying.value || seekBar.isDragging || isPopupVisible()) return
+        val pausedNotBuffering = !controller.isPlaying.value && !controller.isBuffering.value
+        if (isLocked || pausedNotBuffering || seekBar.isDragging || isPopupVisible()) return
         controlsVisible = false
-        controlsWindow?.isVisible = false
+        controlsWindow?.let { window ->
+            window.isAlwaysOnTop = false
+            window.isVisible = false
+        }
     }
 
     /** 上次轮询采样的全局鼠标位置（null = 未采样/不比较） */
@@ -759,20 +964,36 @@ class PlayerOverlay(
     }
 
     /**
-     * 布局模式（对照参考图）：页内非全屏用紧凑布局（无顶栏/锁定/记录片头/选集/源），
-     * 全屏或独立播放窗口用完整布局（顶栏+锁定+记录片头+选集+源）。
-     * 锁定时（完整布局）仅保留锁定按钮，其余全部隐藏。
+     * 布局模式（对照手机端两形态）：页内非全屏用紧凑布局（顶栏仅返回+分辨率，
+     * 底部仅 上下集/弹/倍速/播放/全屏），全屏或独立播放窗口用完整布局
+     * （顶栏功能排含锁定+底部片头/选集/源/清晰度）。锁定时仅保留顶栏锁定按钮，其余全部隐藏。
      */
     private fun applyLayoutMode() {
-        val compact = windowActions == null && !actions.isFullscreen
-        topBar.isVisible = !compact && !isLocked
+        val full = standalone || actions.isFullscreen
+        topBar.isVisible = true
+        backButton.isVisible = !isLocked
+        titleLabel.isVisible = full && !isLocked
         topRow.isVisible = !isLocked
         centerBox.isVisible = !isLocked
         bottomStack.isVisible = !isLocked
-        lockButton.isVisible = !compact
-        recordIntroButton.isVisible = !compact && config.introTarget != null && !isLocked
-        episodeButton.isVisible = !compact && (config.episodes.isNotEmpty() || config.onChannelList != null) && !isLocked
-        sourceButton.isVisible = !compact && config.sources.size > 1 && !isLocked
+        lockButton.isVisible = full
+        subtitleButton.isVisible = full && !isLocked
+        screenshotButton.isVisible = full && !isLocked
+        timerButton.isVisible = full && !isLocked
+        multiThreadButton.isVisible = full && !isLocked
+        shareButton.isVisible = full && !isLocked
+        kernelButton.isVisible = full && !isLocked
+        settingsButton.isVisible = full && !isLocked
+        if (standalone) {
+            miniButton.isVisible = !isLocked
+            maximizeButton.isVisible = !isLocked
+        }
+        recordIntroButton.isVisible = full && !isLocked && config.introTarget != null
+        episodeButton.isVisible = full && !isLocked &&
+            (config.episodes.isNotEmpty() || config.onChannelList != null)
+        sourceButton.isVisible = full && !isLocked && config.sources.size > 1
+        qualityButton.isVisible = full && !isLocked && config.qualities.isNotEmpty()
+        scaleButton.isVisible = !isLocked
     }
 
     /** 中央 seek 提示（1s 后自动消失） */
@@ -797,6 +1018,39 @@ class PlayerOverlay(
             })
         }
         menu.show(speedButton, 0, -menu.preferredSize.height - 4)
+    }
+
+    /** 画面调节弹出菜单：6 模式选择，当前项高亮，选中即持久化并应用到内核 */
+    private fun showScalePopup() {
+        val menu = JPopupMenu()
+        VideoScaleMode.entries.forEach { mode ->
+            menu.add(JMenuItem(mode.label).apply {
+                if (mode == videoScaleMode) foreground = Color(0xE5, 0x48, 0x4D)
+                addActionListener { applyVideoScale(mode) }
+            })
+        }
+        menu.show(scaleButton, 0, -menu.preferredSize.height - 4)
+    }
+
+    /** 应用画面调节模式：持久化（KEY_VIDEO_SCALE）+ 内核即时生效 + 按钮文案同步 */
+    private fun applyVideoScale(mode: VideoScaleMode) {
+        videoScaleMode = mode
+        controller.setVideoScale(mode.id)
+        scaleButton.text = mode.label
+        showSeekHint("画面调节：${mode.label}")
+    }
+
+    /** 清晰度弹出菜单（B 站协议源 qualities）：当前清晰度高亮，选中回调 onQualitySelected */
+    private fun showQualityPopup() {
+        if (config.qualities.isEmpty()) return
+        val menu = JPopupMenu()
+        config.qualities.forEach { quality ->
+            menu.add(JMenuItem(quality.label).apply {
+                if (quality == config.currentQuality) foreground = Color(0xE5, 0x48, 0x4D)
+                addActionListener { config.onQualitySelected(quality) }
+            })
+        }
+        menu.show(qualityButton, 0, -menu.preferredSize.height - 4)
     }
 
     /** 播放设置：底部弹出完整设置面板（与设置页/直播右滑同一套内容，写同一批偏好键） */
@@ -1011,6 +1265,9 @@ class PlayerOverlay(
                         config.onDownloadEpisode?.invoke(index)
                             ?: showSeekHint("桌面版暂不支持下载")
                     })
+                    config.onDownloadAllEpisodes?.let { action ->
+                        add(sheetActionButton("⇊", "下载全部") { action() })
+                    }
                     add(sheetActionButton("✕", "关闭") { onDismiss.run() })
                 }
                 add(tab, BorderLayout.WEST)
@@ -1552,9 +1809,14 @@ class PlayerOverlay(
         })
     }
 
-    /** 惰性创建控制层宿主窗口（per-pixel 透明、不抢焦点，owned 于宿主窗口） */
+    /** 惰性创建控制层宿主窗口（per-pixel 透明、不抢焦点，owned 于宿主窗口）；
+     *  宿主窗口 peer 重建（如全屏切换）后旧 JWindow 失效，需校验 displayable 并重建 */
     private fun ensureControlsWindow(): JWindow? {
-        controlsWindow?.let { return it }
+        controlsWindow?.takeIf { it.isDisplayable }?.let { return it }
+        // 先隐藏再销毁：防 dispose 时序缝隙留下残影窗
+        controlsWindow?.isVisible = false
+        controlsWindow?.dispose()
+        controlsWindow = null
         val owner = SwingUtilities.getWindowAncestor(this) ?: return null
         val window = JWindow(owner)
         // 顶层窗口 per-pixel 透明：背景 alpha=0 即进入非透明（分层窗口）模式
@@ -1565,13 +1827,85 @@ class PlayerOverlay(
         return window
     }
 
-    /** 把控制层窗口对齐到视频区当前位置与尺寸 */
-    private fun syncControlWindow(window: JWindow) {
-        val loc = runCatching { locationOnScreen }.getOrNull() ?: return
+    /** 惰性创建缓冲转圈宿主窗口（per-pixel 透明、不抢焦点；仅承载居中转圈） */
+    private fun ensureBufferingWindow(): JWindow? {
+        bufferingWindow?.takeIf { it.isDisplayable }?.let { return it }
+        // 先隐藏再销毁：防 dispose 时序缝隙留下残影转圈（双圈根因）
+        bufferingWindow?.isVisible = false
+        bufferingWindow?.dispose()
+        bufferingWindow = null
+        val owner = SwingUtilities.getWindowAncestor(this) ?: return null
+        val window = JWindow(owner).apply {
+            background = Color(0, 0, 0, 0)
+            focusableWindowState = false
+            layout = null
+            add(bufferingIndicator)
+        }
+        bufferingWindow = window
+        return window
+    }
+
+    /** 播放窗置顶态：仅用户点「📌 置顶」按钮开启（不自动置顶，避免遮挡其它程序）；小窗画中画由主窗口置顶带动 */
+    @Volatile
+    private var pinnedByUser = false
+
+    private val pinnedMode: Boolean get() = pinnedByUser
+
+    /** 置顶按钮点击：同步主窗口与全部悬浮窗（控制/转圈/底部面板/侧栏）置顶态，按钮高亮反馈 */
+    private fun togglePinnedByUser() {
+        pinnedByUser = !pinnedByUser
+        val accent = Color(0xFF4F, 0xC3, 0xF7)
+        pinButton.foreground = if (pinnedByUser) accent else Color.WHITE
+        pinButton.toolTipText = if (pinnedByUser) "取消置顶" else "窗口置顶"
+        // 主窗口与全部悬浮窗同步置顶态（悬浮窗轮询也会随 pinnedMode 刷新）
+        SwingUtilities.getWindowAncestor(this)?.isAlwaysOnTop = pinnedByUser
+        controlsWindow?.isAlwaysOnTop = pinnedMode
+        bufferingWindow?.isAlwaysOnTop = pinnedMode
+        sheetWindow?.isAlwaysOnTop = pinnedMode
+        sidePanelWindow?.isAlwaysOnTop = pinnedMode
+    }
+
+    /** 画面缩放档位（fit=按比例留边；crop/stretch 等画面铺满整窗） */
+    private fun scaleModeOf(): String =
+        prefs.getString(DesktopPrefs.KEY_VIDEO_SCALE).orEmpty().ifBlank { "fit" }
+
+    /** 画面显示区域（屏幕坐标）：mpv 保持比例渲染，按视频宽高比在 overlay 内 fit 居中；未知比例/非 fit 回退整窗 */
+    private fun displayVideoRectOnScreen(): Rectangle? {
+        val loc = runCatching { locationOnScreen }.getOrNull() ?: return null
         val w = width.coerceAtLeast(1)
         val h = height.coerceAtLeast(1)
-        window.setBounds(loc.x, loc.y, w, h)
-        controlPane.setSize(w, h)
+        val vw = controller.videoWidth.value
+        val vh = controller.videoHeight.value
+        if (vw <= 0 || vh <= 0 || scaleModeOf() != "fit") return Rectangle(loc.x, loc.y, w, h)
+        val videoRatio = vw.toFloat() / vh
+        val boxRatio = w.toFloat() / h
+        return if (videoRatio > boxRatio) {
+            val shownH = (w / videoRatio).toInt().coerceIn(1, h)
+            Rectangle(loc.x, loc.y + (h - shownH) / 2, w, shownH)
+        } else {
+            val shownW = (h * videoRatio).toInt().coerceIn(1, w)
+            Rectangle(loc.x + (w - shownW) / 2, loc.y, shownW, h)
+        }
+    }
+
+    /** 把缓冲转圈窗口对齐画面显示区域，转圈居中 */
+    private fun syncBufferingWindow(window: JWindow) {
+        val rect = displayVideoRectOnScreen() ?: return
+        window.setBounds(rect.x, rect.y, rect.width, rect.height)
+        val size = bufferingIndicator.preferredSize
+        bufferingIndicator.setBounds(
+            (rect.width - size.width) / 2,
+            (rect.height - size.height) / 2,
+            size.width,
+            size.height,
+        )
+    }
+
+    /** 把控制层窗口对齐到画面显示区域（控制组件贴画面边缘而非窗口边缘） */
+    private fun syncControlWindow(window: JWindow) {
+        val rect = displayVideoRectOnScreen() ?: return
+        window.setBounds(rect.x, rect.y, rect.width, rect.height)
+        controlPane.setSize(rect.width, rect.height)
         // 尺寸变化后立即重排，避免沿用旧宽度（进度线被压成半截的根因）
         controlPane.validate()
     }
@@ -1580,6 +1914,9 @@ class PlayerOverlay(
     private fun repositionControls() {
         controlsWindow?.let { window ->
             if (controlsVisible && window.isVisible) syncControlWindow(window)
+        }
+        bufferingWindow?.let { window ->
+            if (window.isVisible) syncBufferingWindow(window)
         }
         sidePanelWindow?.let { panel ->
             runCatching { locationOnScreen }.getOrNull()?.let { loc ->
@@ -1612,6 +1949,11 @@ class PlayerOverlay(
         controlsWindow?.dispose()
         controlsWindow = null
         controlsVisible = true
+        // 退出播放复位用户置顶：主窗口与悬浮窗全部取消置顶（下次播放默认不置顶）
+        pinnedByUser = false
+        pinButton.foreground = Color.WHITE
+        pinButton.toolTipText = "窗口置顶"
+        SwingUtilities.getWindowAncestor(this)?.isAlwaysOnTop = false
         super.removeNotify()
     }
 
@@ -1738,9 +2080,11 @@ class PlayerOverlay(
     // endregion
 
     companion object {
-        private const val AUTO_HIDE_DELAY_MS = 3000
         private const val UI_SYNC_INTERVAL_MS = 250
         private const val SEEK_HINT_DURATION_MS = 1000
+
+        /** 长按倍速触发阈值（按住不动毫秒数） */
+        private const val LONG_PRESS_DELAY_MS = 400
 
         /** 选集底部面板：行高 / 头部高 / 贴底间距 / 默认与最大列数 */
         private const val EPISODE_ROW_HEIGHT_PX = 40

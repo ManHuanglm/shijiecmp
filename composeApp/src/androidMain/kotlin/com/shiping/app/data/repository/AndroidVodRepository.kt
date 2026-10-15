@@ -17,6 +17,11 @@ import com.shiping.shared.repository.VodRepository
 import com.shiping.shared.spider.SpiderEngine
 import com.shiping.shared.prefs.KeyValueStore
 import com.shiping.shared.prefs.PrefsKeys
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
+
+/** 单源搜索超时（对齐 FongMi TIMEOUT_SEARCH）：卡死源超时回报，不再拖死整轮聚合搜索 */
+private const val SEARCH_TIMEOUT_MILLIS = 30_000L
 
 /**
  * 视频数据仓库 Android 实现（实现 shared 共享接口）：
@@ -89,38 +94,42 @@ class AndroidVodRepository(
         }.associateBy { it.vodId }
     }
 
-    /** 在单个 API 源上搜索（含详情补全），失败时返回带 error 的分组，不抛异常 */
+    /** 在单个 API 源上搜索（含详情补全，30 秒硬超时），失败时返回带 error 的分组，不抛异常 */
     override suspend fun searchOneSource(
         source: ApiSourceEntity,
         keyword: String,
         page: Int,
     ): SearchGroupData = runCatching {
-        val response = search(keyword, page = page, url = source.url)
-        val list = if (source.isSpider()) {
-            // 爬虫源：结果自带封面与备注，无需详情补全
-            response.list
-        } else {
-            val detailMap = runCatching {
-                getDetails(response.list.map { it.vodId }, url = source.url)
-            }.getOrDefault(emptyMap())
-            response.list.map { vod ->
-                detailMap[vod.vodId]?.let { vod.mergeWithDetail(it) } ?: vod
+        withTimeout(SEARCH_TIMEOUT_MILLIS) {
+            val response = search(keyword, page = page, url = source.url)
+            val list = if (source.isSpider()) {
+                // 爬虫源：结果自带封面与备注，无需详情补全
+                response.list
+            } else {
+                val detailMap = runCatching {
+                    getDetails(response.list.map { it.vodId }, url = source.url)
+                }.getOrDefault(emptyMap())
+                response.list.map { vod ->
+                    detailMap[vod.vodId]?.let { vod.mergeWithDetail(it) } ?: vod
+                }
             }
+            SearchGroupData(
+                sourceId = source.id,
+                sourceName = source.name,
+                sourceUrl = source.url,
+                results = list,
+                page = page,
+                hasMore = page < response.pageCount,
+                done = true,
+            )
         }
-        SearchGroupData(
-            sourceId = source.id,
-            sourceName = source.name,
-            sourceUrl = source.url,
-            results = list,
-            page = page,
-            hasMore = page < response.pageCount,
-        )
     }.getOrElse { e ->
         SearchGroupData(
             sourceId = source.id,
             sourceName = source.name,
             sourceUrl = source.url,
-            error = e.message ?: "搜索失败",
+            error = if (e is TimeoutCancellationException) "搜索超时（源无响应）" else e.message ?: "搜索失败",
+            done = true,
         )
     }
 
@@ -208,6 +217,8 @@ class AndroidVodRepository(
         val vod = SpiderMapper.parseDetail(json, site.url)
         if (vod == null) {
             Log.w("VodRepository", "爬虫详情为空 key=${site.spiderKey} vodId=$vodId realId=$realId jsonLen=${json.length} head=${json.take(180)}")
+            // 爬虫业务提示（如体育源「比赛尚未开始」）优先于笼统失败文案
+            SpiderMapper.parseDetailMessage(json)?.let { throw IllegalStateException(it) }
         }
         return vod
     }

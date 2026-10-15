@@ -1,148 +1,48 @@
 package com.github.catvod.utils;
 
-import android.os.Environment;
-
 import com.github.catvod.Init;
-import android.util.Log;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 
+/**
+ * 桌面 stub：python 脚本/jar 缓存目录（PythonBridge 解包 runner.py、下载爬虫 .py 与
+ * ensureJar 校验的落点）。cache 根取 Init.context().getCacheDir()。
+ */
 public class Path {
 
-    private static final String TAG = Path.class.getSimpleName();
-
-    private static File mkdir(File file) {
-        if (file == null || file.exists()) return file;
-        if (file.mkdirs()) Log.d(TAG, "Created dir:" + file);
-        return file;
-    }
-
-    public static boolean exists(String path) {
-        return new File(path.replace("file://", "")).exists();
-    }
-
-    public static boolean exists(File file) {
-        return file != null && file.exists() && file.length() > 0;
-    }
-
-    public static File root() {
-        return Environment.getExternalStorageDirectory();
-    }
-
-    public static File cache() {
-        return Init.context().getCacheDir();
-    }
-
-    public static File files() {
-        return Init.context().getFilesDir();
-    }
-
-    public static String rootPath() {
-        return root().getAbsolutePath();
-    }
-
-    public static File tv() {
-        return mkdir(new File(root(), "TV"));
-    }
-
-    public static File so() {
-        return mkdir(new File(files(), "so"));
-    }
-
-    public static File js() {
-        return mkdir(new File(cache(), "js"));
+    private static File cache() {
+        File dir = new File(Init.context().getCacheDir(), "catvod");
+        if (!dir.exists()) dir.mkdirs();
+        return dir;
     }
 
     public static File py() {
-        return mkdir(new File(cache(), "py"));
-    }
-
-    public static File jar() {
-        return mkdir(new File(cache(), "jar"));
-    }
-
-    public static File exoCache() {
-        return mkdir(new File(cache(), "exo"));
-    }
-
-    public static File mpvCache() {
-        return mkdir(new File(cache(), "mpv"));
-    }
-
-    public static File mpv() {
-        return mkdir(new File(tv(), "mpv"));
-    }
-
-    public static File epg() {
-        return mkdir(new File(cache(), "epg"));
-    }
-
-    public static File jpa() {
-        return mkdir(new File(cache(), "jpa"));
-    }
-
-    public static File thunder() {
-        return mkdir(new File(cache(), "thunder"));
-    }
-
-    public static File root(String name) {
-        return new File(root(), name);
-    }
-
-    public static File root(String child, String name) {
-        return new File(mkdir(new File(root(), child)), name);
-    }
-
-    public static File cache(String name) {
-        return new File(cache(), name);
-    }
-
-    public static File files(String name) {
-        return new File(files(), name);
-    }
-
-    public static File mpv(String name) {
-        return new File(mpv(), name);
-    }
-
-    public static File epg(String name) {
-        return new File(epg(), name);
-    }
-
-    public static File js(String name) {
-        return new File(js(), name);
+        File dir = new File(cache(), "py");
+        if (!dir.exists()) dir.mkdirs();
+        return dir;
     }
 
     public static File py(String name) {
         return new File(py(), name);
     }
 
+    public static File jar() {
+        File dir = new File(cache(), "jar");
+        if (!dir.exists()) dir.mkdirs();
+        return dir;
+    }
+
     public static File jar(String name) {
-        return new File(jar(), Util.md5(name).concat(".jar"));
-    }
-
-    public static File thunder(String name) {
-        return mkdir(new File(thunder(), name));
-    }
-
-    public static File local(String path) {
-        path = path.replace("file:/", "");
-        File file = new File(root(), path);
-        return file.exists() ? file : new File(path);
+        return new File(jar(), Crypto.md5(name).concat(".jar"));
     }
 
     public static String read(File file) {
-        try {
-            return new String(readToByte(file), StandardCharsets.UTF_8);
+        try (InputStream is = new FileInputStream(file)) {
+            return read(is);
         } catch (Exception e) {
             return "";
         }
@@ -150,105 +50,43 @@ public class Path {
 
     public static String read(InputStream is) {
         try {
-            return new String(readToByte(is), StandardCharsets.UTF_8);
-        } catch (IOException e) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = is.read(buffer)) > 0) out.write(buffer, 0, len);
+            return out.toString("UTF-8");
+        } catch (Exception e) {
             return "";
         }
     }
 
-    public static byte[] readToByte(File file) {
-        try (FileInputStream is = new FileInputStream(file)) {
-            return readToByte(is);
-        } catch (IOException e) {
+    public static byte[] readToByte(InputStream is) {
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = is.read(buffer)) > 0) out.write(buffer, 0, len);
+            return out.toByteArray();
+        } catch (Exception e) {
             return new byte[0];
         }
     }
 
-    private static byte[] readToByte(InputStream is) throws IOException {
-        try (InputStream input = is; ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-            int read;
-            byte[] buffer = new byte[16384];
-            while ((read = input.read(buffer)) != -1) bos.write(buffer, 0, read);
-            return bos.toByteArray();
+    public static byte[] readToByte(File file) {
+        try (InputStream is = new FileInputStream(file)) {
+            return readToByte(is);
+        } catch (Exception e) {
+            return new byte[0];
         }
     }
 
-    public static File write(File file, InputStream is) {
-        try (InputStream input = is; FileOutputStream output = new FileOutputStream(create(file))) {
-            int read;
-            byte[] buffer = new byte[16384];
-            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-            return file;
-        } catch (IOException e) {
-            return file;
-        }
-    }
-
-    public static File write(File file, byte[] data) {
-        try (FileOutputStream fos = new FileOutputStream(create(file))) {
-            fos.write(data);
-            fos.flush();
-            return file;
-        } catch (IOException e) {
-            return file;
-        }
-    }
-
-    public static void move(File in, File out) {
-        if (in.renameTo(out)) return;
-        copy(in, out);
-        clear(in);
-    }
-
-    public static void copy(File in, File out) {
-        try {
-            copy(new FileInputStream(in), out);
-        } catch (IOException ignored) {
-        }
-    }
-
-    public static void copy(InputStream in, File out) {
-        try (InputStream input = in; FileOutputStream output = new FileOutputStream(create(out))) {
-            int read;
-            byte[] buffer = new byte[16384];
-            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-        } catch (IOException ignored) {
-        }
-    }
-
-    public static void sort(File[] files) {
-        Arrays.sort(files, (o1, o2) -> {
-            if (o1.isDirectory() && o2.isFile()) return -1;
-            if (o1.isFile() && o2.isDirectory()) return 1;
-            return o1.getName().toLowerCase().compareTo(o2.getName().toLowerCase());
-        });
-    }
-
-    public static List<File> list(File dir) {
-        File[] files = dir.listFiles();
-        if (files != null) sort(files);
-        return files == null ? new ArrayList<>() : Arrays.asList(files);
-    }
-
-    public static void clear(File dir) {
-        if (dir == null) return;
-        if (dir.isDirectory()) for (File file : list(dir)) clear(file);
-        if (dir.delete()) Log.d(TAG, "Deleted:" + dir);
-    }
-
-    public static File create(File file) {
-        try {
-            File parent = file.getParentFile();
-            if (parent != null) mkdir(parent);
-            if (file.exists()) clear(file);
-            if (file.createNewFile()) Log.d(TAG, "Create:" + file);
-            file.setReadable(true);
-            file.setWritable(true);
-            file.setExecutable(true);
-            Shell.exec("chmod 777 " + file);
-            return file;
-        } catch (IOException e) {
-            return file;
+    public static void write(File file, InputStream is) {
+        try (FileOutputStream os = new FileOutputStream(file)) {
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = is.read(buffer)) > 0) os.write(buffer, 0, len);
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 }

@@ -31,7 +31,7 @@ object PrefsKeys {
     /** 过滤列表中名称/备注含「切片」的条目 */
     const val KEY_FILTER_SLICE_AD = "filterSliceAd"
 
-    /** m3u8 播放级广告切片过滤（仅 Android media3 播放生效） */
+    /** m3u8 播放级广告切片过滤（Android media3 数据源与桌面本地代理 /m3u8 路由共用） */
     const val KEY_FILTER_M3U8_AD = "filterM3u8Ad"
 
     /** 播放中离开应用自动进画中画（Android 专属，默认开启） */
@@ -120,4 +120,58 @@ object PrefsKeys {
 
     /** 当前生效的播放器内核 ID（与 KEY_PLAYER_KERNEL 同值，统一 UI 读写入口） */
     const val KEY_PLAYER_KERNEL_CURRENT = "playerKernel"
+
+    /** 源使用历史（逗号分隔源 ID，最近使用在前，首页图标弹层快速切换） */
+    const val KEY_API_SOURCE_HISTORY = "apiSourceHistory"
+
+    /** 首页海报布局档位（0=四列 1=三列 2=单列大图 3=双列宽图 4=宽幅，PosterLayout.ordinal） */
+    const val KEY_HOME_POSTER_LAYOUT = "homePosterLayout"
+
+    /** 搜索结果海报布局档位（0=双列宽图 1=双列海报 2=单列列表，SearchPosterLayout.ordinal） */
+    const val KEY_SEARCH_POSTER_LAYOUT = "searchPosterLayout"
+
+    /** 首页分类顺序前缀（拼接源地址，值为逗号分隔 typeId） */
+    const val KEY_HOME_CATEGORY_ORDER = "homeCategoryOrder_"
+
+    /** 主导航 Tab 位置（bottom=底部导航 / drawer=左上抽屉） */
+    const val KEY_TAB_POSITION = "mainTabPosition"
+
+    /** 源列表加锁源查看密码（存 SHA-256 哈希，空=未设置，首次点击锁图标时设置） */
+    const val KEY_SOURCE_LOCK_PASSWORD = "sourceLockPassword"
+
+    /** 首页屏蔽分类（逗号分隔分类名，跨源生效，密码保护管理） */
+    const val KEY_BLOCKED_CATEGORIES = "blockedCategories"
+
+    /** 首页屏蔽分类管理密码（存 SHA-256 哈希，空=未设置，首次进入屏蔽页时设置） */
+    const val KEY_BLOCKED_PASSWORD = "blockedCategoryPassword"
+
+    /** 播放器：显示上一集/下一集按钮 */
+    const val KEY_PLAYER_SHOW_PREV_NEXT = "playerShowPrevNext"
+
+    /** 播放器：进入后台暂停播放 */
+    const val KEY_PLAYER_PAUSE_ON_BACKGROUND = "playerPauseOnBackground"
+
+    /** 播放器：时间显示总时长（false=仅当前时间） */
+    const val KEY_PLAYER_SHOW_TOTAL_DURATION = "playerShowTotalDuration"
+
+    /** 播放器：快进快退秒数（0=不展示快进快退按钮） */
+    const val KEY_PLAYER_SEEK_STEP_SEC = "playerSeekStepSec"
+
+    /** 播放器：长按倍速（占位，暂未接长按手势） */
+    const val KEY_PLAYER_LONG_PRESS_RATE = "playerLongPressRate"
+
+    /** 下载限速档位 KB/s（0=不限速；档位见 Constants.DOWNLOAD_SPEED_OPTIONS） */
+    const val KEY_DOWNLOAD_SPEED_LIMIT_KB = "downloadSpeedLimitKb"
+
+    /** 下载最大并发任务数（1-3，桌面引擎多 worker） */
+    const val KEY_DOWNLOAD_MAX_PARALLEL = "downloadMaxParallel"
+
+    /** HLS 分片并发下载数（1-6，过大易触发 CDN 429 限流） */
+    const val KEY_DOWNLOAD_SEGMENT_CONCURRENCY = "downloadSegmentConcurrency"
+
+    /** 仅 WiFi 下自动继续下载（Android 有效；桌面恒允许） */
+    const val KEY_DOWNLOAD_WIFI_ONLY = "downloadWifiOnly"
+
+    /** 搜索结果布局：groups=分组行 / sidebar=源侧栏+网格 / compact=源条+混排网格 */
+    const val KEY_SEARCH_DISPLAY_MODE = "searchDisplayMode"
 }

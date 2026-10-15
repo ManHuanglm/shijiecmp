@@ -15,8 +15,7 @@ import kotlinx.coroutines.Dispatchers
 /**
  * API 源仓库 Android 实现（Room + DataStore，实现 shared 共享接口）：
  * Room Flow 自动通知，refresh 为空操作；输出 shared 桌面模型类型。
- * locked/playRecord/searchable/userAgent 为桌面端字段，Android 无对应存储列，
- * 映射时取缺省值，批量开关为空实现（Android 版本功能子集）。
+ * locked/playRecord/searchable/userAgent 已随 v12 迁移落库，与桌面端字段对齐。
  */
 class AndroidApiSourceRepository(
     private val dao: ApiSourceDao,
@@ -27,14 +26,16 @@ class AndroidApiSourceRepository(
     private fun RoomApiSource.toModel() = ApiSourceEntity(
         id = id, name = name, url = url, note = note, enabled = enabled,
         sortOrder = sortOrder, siteType = siteType, jarUrl = jarUrl,
-        spiderKey = spiderKey, ext = ext, locked = false, playRecord = true,
-        searchable = true, userAgent = "", createdAt = createdAt,
+        spiderKey = spiderKey, ext = ext, locked = locked, playRecord = playRecord,
+        searchable = searchable, userAgent = userAgent, createdAt = createdAt,
     )
 
     private fun modelToRoom(m: ApiSourceEntity, room: RoomApiSource? = null) = (room ?: RoomApiSource(name = m.name, url = m.url)).copy(
         id = m.id, name = m.name, url = m.url, note = m.note, enabled = m.enabled,
         sortOrder = m.sortOrder, siteType = m.siteType, jarUrl = m.jarUrl,
-        spiderKey = m.spiderKey, ext = m.ext, createdAt = m.createdAt,
+        spiderKey = m.spiderKey, ext = m.ext, locked = m.locked,
+        playRecord = m.playRecord, searchable = m.searchable, userAgent = m.userAgent,
+        createdAt = m.createdAt,
     )
 
     override val sources: StateFlow<List<ApiSourceEntity>> =
@@ -53,11 +54,17 @@ class AndroidApiSourceRepository(
         dao.update(modelToRoom(source, dao.getById(source.id)))
     }
 
-    override suspend fun setLocked(ids: List<Long>, value: Boolean) = Unit
+    override suspend fun setLocked(ids: List<Long>, value: Boolean) = withContext(Dispatchers.IO) {
+        if (ids.isNotEmpty()) dao.setLocked(ids, value)
+    }
 
-    override suspend fun setPlayRecord(ids: List<Long>, value: Boolean) = Unit
+    override suspend fun setPlayRecord(ids: List<Long>, value: Boolean) = withContext(Dispatchers.IO) {
+        if (ids.isNotEmpty()) dao.setPlayRecord(ids, value)
+    }
 
-    override suspend fun setSearchable(ids: List<Long>, value: Boolean) = Unit
+    override suspend fun setSearchable(ids: List<Long>, value: Boolean) = withContext(Dispatchers.IO) {
+        if (ids.isNotEmpty()) dao.setSearchable(ids, value)
+    }
 
     override suspend fun moveUp(id: Long) = withContext(Dispatchers.IO) {
         val list = sources.value
@@ -105,7 +112,10 @@ class AndroidApiSourceRepository(
                 val url = if (splitAt > 0) line.substring(splitAt + 1).trim() else line
                 if (!url.startsWith("http") && !url.contains(".")) return@mapNotNull null
                 val autoName = name.ifBlank { url.removePrefix("https://").removePrefix("http://").substringBefore('/') }
-                RoomApiSource(name = autoName, url = url, siteType = 0, sortOrder = 0)
+                RoomApiSource(
+                    name = autoName, url = url, siteType = 0, sortOrder = 0,
+                    locked = locked, playRecord = playRecord,
+                )
             }
         if (parsed.isEmpty()) return@withContext 0
         var order = if (putFirst) {

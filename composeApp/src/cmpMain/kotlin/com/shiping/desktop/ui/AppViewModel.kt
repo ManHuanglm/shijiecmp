@@ -47,8 +47,24 @@ class AppViewModel(
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
+    /** 设置页深链待打开的二级页（外部入口指定，SettingsScreen 进入时消费一次） */
+    private val _pendingSettingsPage = MutableStateFlow<SettingsPage?>(null)
+
     init {
         collectPushEvents()
+    }
+
+    /** 跳转设置页并直达指定二级页（如首页源列表弹层跳「视频源」管理） */
+    internal fun openSettingsPage(page: SettingsPage) {
+        _pendingSettingsPage.value = page
+        navigate(Screen.Settings)
+    }
+
+    /** 消费待打开的设置二级页（一次性） */
+    internal fun consumePendingSettingsPage(): SettingsPage? {
+        val page = _pendingSettingsPage.value
+        _pendingSettingsPage.value = null
+        return page
     }
 
     // region 播放内核与独立直链播放宿主
@@ -109,6 +125,14 @@ class AppViewModel(
         _navStack.value = stack.dropLast(1)
         return true
     }
+
+    // endregion
+
+    // region 页面级状态单例
+
+    /** 首页/直播状态跨导航缓存：单例持有，重进页面不重新拉取（下拉刷新/切源时更新） */
+    val homeViewModel: HomeViewModel by lazy { HomeViewModel(scope, graph) }
+    val tvViewModel: TvViewModel by lazy { TvViewModel(scope, graph) }
 
     // endregion
 
@@ -202,6 +226,18 @@ class AppViewModel(
         directHost.openOrCreate(session, _kernelId.value, graph.prefs)
     }
 
+    /** 剪贴板/外部分享发起的搜索（SearchScreen 进入时消费一次并自动搜索） */
+    private val _pendingSearch = MutableStateFlow<String?>(null)
+
+    /** 外部发起搜索：记录待搜关键词并跳转搜索页 */
+    fun requestSearch(keyword: String) {
+        _pendingSearch.value = keyword
+        navigate(Screen.Search)
+    }
+
+    /** 消费待搜关键词（消费即清空，防重复触发） */
+    fun consumePendingSearch(): String? = _pendingSearch.value.also { _pendingSearch.value = null }
+
     /** 关闭播放器：复位页内全屏与会话，并关闭独立播放宿主（窗口自身回调 onClose 时幂等） */
     fun closePlayer() {
         _detailFullscreen.value = false
@@ -209,6 +245,19 @@ class AppViewModel(
         _playerSession.value = null
         directHost.close()
     }
+
+    // region 页内播放视频尺寸
+
+    /** 当前页内播放视频尺寸（宽, 高），未知为 (0, 0)；Android 全屏方向决策用（竖屏视频全屏不旋转），由挂载内核的平台页面回传 */
+    private val _playerVideoSize = MutableStateFlow(0 to 0)
+    val playerVideoSize: StateFlow<Pair<Int, Int>> = _playerVideoSize.asStateFlow()
+
+    /** 回传当前页内播放视频尺寸 */
+    fun updatePlayerVideoSize(width: Int, height: Int) {
+        _playerVideoSize.value = width to height
+    }
+
+    // endregion
 
     // region 页内播放全屏
 
@@ -225,15 +274,23 @@ class AppViewModel(
     private val _tvFullscreen = MutableStateFlow(false)
     val tvFullscreen: StateFlow<Boolean> = _tvFullscreen.asStateFlow()
 
-    /** 切换直播页内播放全屏 */
+    /** 切换直播页内播放全屏（诊断：记录调用方链，定位异常的全屏复位） */
     fun toggleTvFullscreen() {
         _tvFullscreen.value = !_tvFullscreen.value
+        VmLog.i("Fullscreen", "toggleTvFullscreen -> ${_tvFullscreen.value} by ${callerTrace()}")
     }
 
-    /** 退出直播页内播放全屏（离开直播页/退出播放时复位） */
+    /** 退出直播页内播放全屏（离开直播页/退出播放时复位；诊断：记录调用方链） */
     fun closeTvFullscreen() {
+        VmLog.i("Fullscreen", "closeTvFullscreen by ${callerTrace()}")
         _tvFullscreen.value = false
     }
+
+    /** 诊断用调用方链（shiping 包内前 4 帧） */
+    private fun callerTrace(): String = Throwable().stackTrace
+        .filter { it.className.contains("shiping") }
+        .take(4)
+        .joinToString(" <- ") { "${it.className.substringAfterLast('.')}#${it.methodName}:${it.lineNumber}" }
 
     // endregion
 

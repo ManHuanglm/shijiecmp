@@ -1,4 +1,4 @@
-﻿package com.shiping.desktop.player
+package com.shiping.desktop.player
 
 import com.shiping.desktop.util.AppLog
 import com.sun.jna.Library
@@ -52,19 +52,28 @@ class MpvPlayerController(prefs: com.shiping.shared.prefs.KeyValueStore) : Abstr
         /** 视频面 HWND 变动（移除/重挂）后多久内的加载中断按重挂容错自动恢复 */
         private const val HWND_RECOVERY_WINDOW_MS = 5000L
 
-        /** 定位捆绑/自带 mpv 目录（含 libmpv-2.dll），未找到返回 null */
-        fun findMpvDir(): String? {
-            val candidates = mutableListOf<String>()
-            System.getProperty("compose.application.resources.dir")?.let { candidates += "$it/mpv" }
-            // 安装包（msi/exe）不含 resources 目录，从应用 jar 内提取兜底
-            BundledNative.ensureDir("mpv")?.let { candidates += it.absolutePath }
-            val userDir = System.getProperty("user.dir")
-            candidates += listOf(
-                "$userDir/mpv",
-                "$userDir/desktop-app/app-resources/mpv",
-                "$userDir/app-resources/mpv",
-            )
-            return candidates.firstOrNull { dir -> File(dir, "libmpv-2.dll").exists() }
+        /** 直播暂停恢复的出画面等待（毫秒，超时重载回直播边缘） */
+        private const val LIVE_RESUME_STALL_MS = 8000L
+
+        /** 内核 dll 有效体积下限（真库远大于此，占位/指针文件直接跳过） */
+        private const val MIN_DLL_BYTES = 1_000_000L
+    }
+
+    /** 定位捆绑/自带 mpv 目录（含 libmpv-2.dll），未找到返回 null；dll 需为有效体积（防占位/损坏文件误命中） */
+    fun findMpvDir(): String? {
+        val candidates = mutableListOf<String>()
+        System.getProperty("compose.application.resources.dir")?.let { candidates += "$it/mpv" }
+        // 安装包（msi/exe）不含 resources 目录，从应用 jar 内提取兜底
+        BundledNative.ensureDir("mpv")?.let { candidates += it.absolutePath }
+        val userDir = System.getProperty("user.dir")
+        candidates += listOf(
+            "$userDir/mpv",
+            "$userDir/desktop-app/app-resources/mpv",
+            "$userDir/app-resources/mpv",
+        )
+        // libmpv-2.dll 真库 >100MB，占位/损坏文件（如 git 占位指针）跳过继续尝试下一候选
+        return candidates.firstOrNull { dir ->
+            File(dir, "libmpv-2.dll").let { it.exists() && it.length() > MIN_DLL_BYTES }
         }
     }
 
@@ -145,8 +154,40 @@ class MpvPlayerController(prefs: com.shiping.shared.prefs.KeyValueStore) : Abstr
 
     override fun togglePlayPause() {
         val handle = mpv ?: return
-        val pause = if (_isPlaying.value) "yes" else "no"
+        val resuming = _isPlaying.value
+        val pause = if (resuming) "yes" else "no"
         lib?.mpv_set_property_string(handle, "pause", pause)
+        // 直播流暂停恢复：live 窗口在暂停期间滚过，恢复后可能永远追不上（持续转圈）；
+        // 恢复后短时间仍未出画面则整体重载当前地址，重新对齐直播边缘
+        if (!resuming && _durationMs.value <= 0L) monitorLiveResume()
+    }
+
+    /** 直播恢复监控序号（新恢复动作使旧监控线程放弃干预） */
+    private val resumeMonitorSeq = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** 恢复播放后 [LIVE_RESUME_STALL_MS] 仍未出画面则重载当前流（回直播边缘）；已播放/又暂停/已换流则不干预 */
+    private fun monitorLiveResume() {
+        val request = lastRequest ?: return
+        val seq = resumeMonitorSeq.incrementAndGet()
+        Thread {
+            try {
+                Thread.sleep(LIVE_RESUME_STALL_MS)
+            } catch (_: InterruptedException) {
+                return@Thread
+            }
+            val l = lib ?: return@Thread
+            val handle = mpv ?: return@Thread
+            if (seq != resumeMonitorSeq.get()) return@Thread
+            if (_isPlaying.value || l.getStringProp(handle, "pause") == "yes") return@Thread
+            if (lastRequest !== request) return@Thread
+            AppLog.i(logTag, "直播恢复超时未出画面，重载对齐直播边缘")
+            _isBuffering.value = true
+            actualPlay(request)
+        }.apply {
+            name = "live-resume-watch"
+            isDaemon = true
+            start()
+        }
     }
 
     override fun seekTo(ms: Long) {
@@ -167,12 +208,21 @@ class MpvPlayerController(prefs: com.shiping.shared.prefs.KeyValueStore) : Abstr
         lib?.mpv_set_property_string(handle, "volume", volume.coerceIn(0, 100).toString())
     }
 
-    /** 画面比例：fit=原比例（mpv 默认）/ crop=裁剪铺满 / stretch=拉伸 */
+    /** 画面比例：fit=原比例（mpv 默认）/ 16:9·9:16·4:3=强制比例 / crop=裁剪铺满 / stretch=拉伸 */
     override fun applyVideoScaleNow(scale: String) {
         val handle = mpv ?: return
         val l = lib ?: return
-        l.mpv_set_property_string(handle, "panscan", if (scale == "crop") "1.0" else "0.0")
-        l.mpv_set_property_string(handle, "keepaspect", if (scale == "stretch") "no" else "yes")
+        when (scale) {
+            "16:9", "9:16", "4:3" -> {
+                l.mpv_set_property_string(handle, "video-aspect-override", scale)
+                l.mpv_set_property_string(handle, "panscan", "0.0")
+                l.mpv_set_property_string(handle, "keepaspect", "yes")
+            }
+            else -> {
+                l.mpv_set_property_string(handle, "panscan", if (scale == "crop") "1.0" else "0.0")
+                l.mpv_set_property_string(handle, "keepaspect", if (scale == "stretch") "no" else "yes")
+            }
+        }
     }
 
     /** 截图：mpv screenshot-to-file 存到 用户目录/Pictures/视界Desktop（保留字幕画面） */
@@ -274,8 +324,11 @@ class MpvPlayerController(prefs: com.shiping.shared.prefs.KeyValueStore) : Abstr
         if (subSize != 100) {
             l.mpv_set_property_string(handle, "sub-scale", (subSize / 100.0).toString())
         }
-        // 画面比例：fit=原比例（mpv 默认，无需设置）/ crop=裁剪铺满 / stretch=拉伸
-        when (prefs.getString(com.shiping.shared.prefs.PrefsKeys.KEY_VIDEO_SCALE, "fit")) {
+        // 画面比例：fit=原比例（mpv 默认，无需设置）/ 16:9·9:16·4:3=强制比例 / crop=裁剪铺满 / stretch=拉伸
+        when (val scale = prefs.getString(com.shiping.shared.prefs.PrefsKeys.KEY_VIDEO_SCALE, "fit")) {
+            "16:9", "9:16", "4:3" -> {
+                l.mpv_set_property_string(handle, "video-aspect-override", scale)
+            }
             "crop" -> l.mpv_set_property_string(handle, "panscan", "1.0")
             "stretch" -> l.mpv_set_property_string(handle, "keepaspect", "no")
         }

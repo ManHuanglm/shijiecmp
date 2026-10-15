@@ -34,7 +34,7 @@ class AndroidTvRepository(
         dao.update(RoomTvSource(id = source.id, name = source.name, url = source.url, note = source.note, createdAt = source.createdAt))
     }
 
-    /** 批量添加直播源（每行一个，仅url / 名称,url / 名称,url,备注），返回导入条数 */
+    /** 批量添加直播源（每行一个，仅url / 名称,url / 名称,url,备注），按 URL 去重返回实际新增条数 */
     override suspend fun batchInsert(text: String): Int = withContext(Dispatchers.IO) {
         val parsed = text.lines()
             .map { it.trim() }
@@ -48,13 +48,27 @@ class AndroidTvRepository(
                 }
                 RoomTvSource(name = name, url = url, note = parts.drop(2).joinToString(","))
             }
-        parsed.forEach { insertModel(it) }
-        parsed.size
+        insertUnique(parsed.map { TvSourceEntity(name = it.name, url = it.url, note = it.note, createdAt = it.createdAt) })
     }
 
     override suspend fun importFile(path: String): Int = withContext(Dispatchers.IO) {
         val text = runCatching { java.io.File(path).readText(Charsets.UTF_8) }.getOrNull() ?: return@withContext 0
         batchInsert(text)
+    }
+
+    /** 批量去重插入：批内重复与库中已有 URL 均跳过（先到者优先），返回实际新增条数 */
+    override suspend fun insertUnique(sources: List<TvSourceEntity>): Int = withContext(Dispatchers.IO) {
+        val candidates = sources.filter { it.url.isNotBlank() }
+        if (candidates.isEmpty()) return@withContext 0
+        val existing = dao.findExistingUrls(candidates.map { it.url }).toHashSet()
+        val seen = HashSet<String>()
+        var inserted = 0
+        for (source in candidates) {
+            if (!seen.add(source.url) || !existing.add(source.url)) continue
+            dao.insert(RoomTvSource(name = source.name, url = source.url, note = source.note, createdAt = source.createdAt))
+            inserted++
+        }
+        inserted
     }
 
     override suspend fun insert(source: TvSourceEntity): Long = withContext(Dispatchers.IO) {

@@ -13,4 +13,6 @@ open class ColorDrawable : Drawable()
 
 open class GradientDrawable : Drawable()
 
+open class RippleDrawable : Drawable()
+
 open class StateListDrawable : Drawable()

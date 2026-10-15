@@ -12,6 +12,7 @@ import com.github.unidbg.linux.android.dvm.StringObject;
 import com.github.unidbg.linux.android.dvm.VM;
 import com.github.unidbg.linux.android.dvm.VarArg;
 import com.github.unidbg.linux.android.dvm.VaList;
+import com.github.unidbg.linux.android.dvm.array.ArrayObject;
 import com.github.unidbg.linux.android.dvm.array.ByteArray;
 import com.github.unidbg.memory.Memory;
 import com.shiping.desktop.util.AppLog;
@@ -70,6 +71,13 @@ public final class FtyGuardEngine extends AbstractJni {
 
     /** 当前模拟器绑定的壳 jar 标识（路径+长度+修改时间），换 jar 自动重建 */
     private static String boundJarKey;
+
+    /**
+     * 壳生态加载器兜底：Android 上 native proxyInvoke 的 loader 参数来自壳 DexClassLoader，
+     * 桌面端壳 Init.loader() 字段无人填充，由 DesktopSpiderRuntime 注入 guard 双 jar 加载器，
+     * native 经其 loadClass 加载 payload 站点类（如 Bili）处理代理请求。
+     */
+    private static volatile ClassLoader fallbackClassLoader;
 
     /** JNI 回调里创建的 FileOutputStream -> 捕获缓冲（壳 native 经 Java 层写解密 dex） */
     private static final Map<DvmObject<?>, ByteArrayOutputStream> streams = new IdentityHashMap<>();
@@ -236,6 +244,67 @@ public final class FtyGuardEngine extends AbstractJni {
         return result == null ? null : String.valueOf(result.getValue());
     }
 
+    /**
+     * 执行壳 so 的 DexNative.proxyInvoke（壳生态本地代理分发总入口：B 站 mpd 组装、
+     * cookie/弹幕辅助等）。payload 版 DexNative 缺此方法（壳版为 native），运行时经
+     * PayloadPatch 注入的桥方法调用至此，由 unidbg 模拟壳 so 的 native 实现。
+     *
+     * @param loader 壳生态加载器上下文（Android 上为壳 DexClassLoader，桌面传 guard URLClassLoader）
+     * @param params 本地代理请求参数（do/url/aid/cid/...）
+     * @return 生态约定结构 Object[]{code, mimeType, InputStream, headers?}，无处理返回 null
+     */
+    public static synchronized Object[] proxyInvoke(Object loader, Object params) {
+        requireReady();
+        Object effectiveLoader = loader != null ? loader : fallbackClassLoader;
+        DvmObject<?> result = dexNative.callStaticJniMethodObject(
+                emulator, "proxyInvoke(Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;",
+                effectiveLoader == null ? null : wrap(effectiveLoader),
+                params == null ? null : wrap(params));
+        return unwrapArray(result);
+    }
+
+    /** 注入壳生态加载器兜底（guard 双 jar 加载器，native loadClass 用） */
+    public static void setFallbackClassLoader(ClassLoader loader) {
+        fallbackClassLoader = loader;
+    }
+
+    /** Java 对象包装为 unidbg 参数：DvmObject 透传，ClassLoader/Map 挂到壳生态常用 DvmClass */
+    private static DvmObject<?> wrap(Object value) {
+        if (value instanceof DvmObject<?>) return (DvmObject<?>) value;
+        if (value instanceof String) return new StringObject(vm, (String) value);
+        if (value instanceof ClassLoader) {
+            return vm.resolveClass("dalvik/system/DexClassLoader").newObject(value);
+        }
+        if (value instanceof Map) return vm.resolveClass("java/util/Map").newObject(value);
+        return vm.resolveClass(value.getClass().getName().replace('.', '/')).newObject(value);
+    }
+
+    /** unidbg 返回对象解包为 Java 数组：DvmObject 取内值，供 payload 调用方按生态约定消费 */
+    private static Object[] unwrapArray(DvmObject<?> result) {
+        if (result == null) return null;
+        Object value = result.getValue();
+        if (!(value instanceof Object[])) return null;
+        Object[] raw = (Object[]) value;
+        Object[] out = new Object[raw.length];
+        for (int i = 0; i < raw.length; i++) {
+            Object item = raw[i];
+            out[i] = item instanceof DvmObject<?> ? ((DvmObject<?>) item).getValue() : item;
+        }
+        return out;
+    }
+
+    /** unidbg 参数对象解包为 Java 原生值（Map 回调键比较用） */
+    private static Object unwrapValue(DvmObject<?> arg) {
+        return arg == null ? null : arg.getValue();
+    }
+
+    /** VaList/VarArg 两族统一取参（都有 getObjectArg(int)） */
+    private static DvmObject<?> getArg(Object args, int index) {
+        if (args instanceof VarArg) return ((VarArg) args).getObjectArg(index);
+        if (args instanceof VaList) return ((VaList) args).getObjectArg(index);
+        return null;
+    }
+
     private static void requireReady() {
         if (emulator == null || dexNative == null) {
             throw new IllegalStateException("FtyGuardEngine 未初始化，先调用 init(shellJar, workDir)");
@@ -270,12 +339,12 @@ public final class FtyGuardEngine extends AbstractJni {
 
     @Override
     public DvmObject<?> callStaticObjectMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList) {
-        return staticObjectMethodImpl(vm, dvmClass, signature);
+        return staticObjectMethodImpl(vm, dvmClass, signature, vaList);
     }
 
     @Override
     public DvmObject<?> callStaticObjectMethod(BaseVM vm, DvmClass dvmClass, String signature, VarArg varArg) {
-        return staticObjectMethodImpl(vm, dvmClass, signature);
+        return staticObjectMethodImpl(vm, dvmClass, signature, varArg);
     }
 
     @Override
@@ -310,12 +379,12 @@ public final class FtyGuardEngine extends AbstractJni {
 
     @Override
     public boolean callBooleanMethodV(BaseVM vm, DvmObject<?> dvmObject, String signature, VaList vaList) {
-        return booleanMethodImpl(vm, dvmObject, signature);
+        return booleanMethodImpl(vm, dvmObject, signature, vaList);
     }
 
     @Override
     public boolean callBooleanMethod(BaseVM vm, DvmObject<?> dvmObject, String signature, VarArg varArg) {
-        return booleanMethodImpl(vm, dvmObject, signature);
+        return booleanMethodImpl(vm, dvmObject, signature, varArg);
     }
 
     @Override
@@ -340,14 +409,42 @@ public final class FtyGuardEngine extends AbstractJni {
 
     // ================= 分发实现 =================
 
-    private DvmObject<?> staticObjectMethodImpl(VM vm, DvmClass dvmClass, String signature) {
+    @SuppressWarnings("unchecked")
+    private DvmObject<?> staticObjectMethodImpl(VM vm, DvmClass dvmClass, String signature, Object args) {
         switch (signature) {
             case "com/github/catvod/spider/Init->classLoader()Ljava/lang/ClassLoader;":
                 return vm.resolveClass("java/lang/ClassLoader").newObject(ClassLoader.getSystemClassLoader());
             case "com/github/catvod/spider/Init->context()Landroid/app/Application;":
                 return vm.resolveClass("android/app/Application").newObject("fty-app");
+            case "com/github/catvod/spider/ProxyOrigin->proxy(Ljava/util/Map;)[Ljava/lang/Object;":
+                // 壳 so 的代理分发把非 B 站分支（m3u8/图片等）转回 Java 层 ProxyOrigin，
+                // 桌面端经 fallback loader 直连 payload 真实现
+                return invokePayloadProxyOrigin(getArg(args, 0));
             default:
                 throw new UnsupportedOperationException(TAG + " unhandled static: " + signature);
+        }
+    }
+
+    /** 经 fallback loader 反射调用 payload 的 ProxyOrigin.proxy(Map)，结果包装回 unidbg 数组 */
+    private DvmObject<?> invokePayloadProxyOrigin(DvmObject<?> paramsObj) {
+        ClassLoader loader = fallbackClassLoader;
+        if (loader == null) return null;
+        try {
+            Map<String, String> params = paramsObj == null ? null : (Map<String, String>) paramsObj.getValue();
+            Object[] result = (Object[]) loader.loadClass("com.github.catvod.spider.ProxyOrigin")
+                    .getMethod("proxy", Map.class).invoke(null, params);
+            if (result == null) return null;
+            DvmObject<?>[] items = new DvmObject<?>[result.length];
+            for (int i = 0; i < result.length; i++) items[i] = result[i] == null ? null : wrap(result[i]);
+            return new ArrayObject(items);
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            AppLog.INSTANCE.w(TAG, "payload ProxyOrigin 处理失败: "
+                    + (cause == null ? e : cause));
+            return null;
+        } catch (Throwable t) {
+            AppLog.INSTANCE.w(TAG, "payload ProxyOrigin 反射失败: " + t);
+            return null;
         }
     }
 
@@ -389,6 +486,30 @@ public final class FtyGuardEngine extends AbstractJni {
             }
             case "java/lang/ClassLoader->getParent()Ljava/lang/ClassLoader;":
                 return dvmObject;
+            case "java/util/Map->get(Ljava/lang/Object;)Ljava/lang/Object;": {
+                Map<?, ?> map = (Map<?, ?>) dvmObject.getValue();
+                Object key = unwrapValue(args.getObjectArg(0));
+                Object hit = map.get(key);
+                return hit == null ? null : wrap(hit);
+            }
+            case "java/util/Map->toString()Ljava/lang/String;":
+            case "java/lang/Object->toString()Ljava/lang/String;":
+                return new StringObject(vm, String.valueOf(dvmObject.getValue()));
+            case "dalvik/system/DexClassLoader->loadClass(Ljava/lang/String;)Ljava/lang/Class;":
+            case "java/lang/ClassLoader->loadClass(Ljava/lang/String;)Ljava/lang/Class;": {
+                String name = argString(args, 0);
+                ClassLoader loader = (ClassLoader) dvmObject.getValue();
+                try {
+                    loader.loadClass(name);
+                } catch (ClassNotFoundException e) {
+                    AppLog.INSTANCE.w(TAG, "native loadClass 失败: " + name);
+                }
+                return vm.resolveClass(name.replace('.', '/'));
+            }
+            case "java/lang/Class->getName()Ljava/lang/String;": {
+                DvmClass clazz = (DvmClass) dvmObject;
+                return new StringObject(vm, clazz.getName().replace('/', '.'));
+            }
             default:
                 throw new UnsupportedOperationException(TAG + " unhandled method: " + signature);
         }
@@ -396,6 +517,8 @@ public final class FtyGuardEngine extends AbstractJni {
 
     private int intMethodImpl(VM vm, DvmObject<?> dvmObject, String signature, VarArg args) {
         switch (signature) {
+            case "java/util/Map->size()I":
+                return ((Map<?, ?>) dvmObject.getValue()).size();
             case "java/io/InputStream->read([B)I": {
                 InputStream in = (InputStream) dvmObject.getValue();
                 ByteArray buf = args.getObjectArg(0);
@@ -435,8 +558,14 @@ public final class FtyGuardEngine extends AbstractJni {
         throw new UnsupportedOperationException(TAG + " unhandled long: " + signature);
     }
 
-    private boolean booleanMethodImpl(VM vm, DvmObject<?> dvmObject, String signature) {
+    private boolean booleanMethodImpl(VM vm, DvmObject<?> dvmObject, String signature, Object args) {
         switch (signature) {
+            case "java/util/Map->containsKey(Ljava/lang/Object;)Z": {
+                Map<?, ?> map = (Map<?, ?>) dvmObject.getValue();
+                return map.containsKey(unwrapValue(getArg(args, 0)));
+            }
+            case "java/util/Map->isEmpty()Z":
+                return ((Map<?, ?>) dvmObject.getValue()).isEmpty();
             case "java/io/File->setReadOnly()Z":
                 return true;
             case "java/io/File->mkdirs()Z":

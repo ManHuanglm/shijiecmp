@@ -14,13 +14,40 @@ import com.shiping.desktop.player.PlayerOverlay
 import com.shiping.desktop.player.PlayerOverlayConfig
 import com.shiping.desktop.player.PlayerQuality
 import com.shiping.desktop.player.PlayerWindowActions
+import com.shiping.desktop.spider.DesktopProxyRoutes
+import com.shiping.desktop.ui.player.PagePlayerModeState
 import com.shiping.shared.graph.AppGraph
 import com.shiping.shared.player.PlayerKernel
+import com.shiping.shared.prefs.KeyValueStore
+import com.shiping.shared.prefs.PrefsKeys
 import kotlinx.coroutines.delay
 
-/** 创建页内播放内核：按偏好选择 mpv/vlc/MDK（工厂同步创建，保证播放区工厂拿到真实视频面） */
+/** 创建页内播放内核：按偏好选择 mpv/vlc/MDK（工厂同步创建，保证播放区工厂拿到真实视频面），外包 m3u8 去广告装饰器 */
 actual fun createInPageKernel(graph: AppGraph): PlayerKernel =
-    PlayerControllerFactory.create(PlayerControllerFactory.fromPrefs(graph.prefs), graph.prefs)
+    AdFilterKernelDecorator(
+        PlayerControllerFactory.create(PlayerControllerFactory.fromPrefs(graph.prefs), graph.prefs),
+        graph.prefs,
+    )
+
+/**
+ * 页内播放内核 m3u8 去广告装饰器（接口委托，仅重写 play）：
+ * m3u8 播放地址改写为本地 /m3u8 过滤路由（与 Android media3 数据源过滤共用共享规则），
+ * 其余播放行为全部透传内核。开关随每次起播读取，设置页切换即时生效。
+ */
+private class AdFilterKernelDecorator(
+    private val inner: PlayerController,
+    private val prefs: KeyValueStore,
+) : PlayerController by inner {
+
+    override fun play(url: String, headers: Map<String, String>, startMs: Long) {
+        val decorated = DesktopProxyRoutes.decoratePlayUrl(
+            url,
+            headers,
+            prefs.getBoolean(PrefsKeys.KEY_FILTER_M3U8_AD, true),
+        )
+        inner.play(decorated, headers, startMs)
+    }
+}
 
 /**
  * 等待渲染面就绪：mpv/vlc 需要渲染面挂上显示层级后才能拿到 wid，
@@ -51,7 +78,11 @@ actual fun releasePageKernel(kernel: PlayerKernel) {
     }
 }
 
-/** 页内播放区（桌面）：PlayerOverlay Swing 组合承载渲染面与控制层 */
+/** 手机端平台标记：桌面非手机端（播放区保持按视频真实比例自适应） */
+actual val isPhonePlatform: Boolean = false
+
+/** 页内播放区（桌面）：PlayerOverlay Swing 组合承载渲染面与控制层。
+ * [modeState] 桌面侧不消费（无系统画中画；控制层形态经 PlayerWindowActions 全屏路由），仅对齐跨端契约 */
 @Composable
 actual fun InPagePlayerSurface(
     kernel: PlayerKernel,
@@ -60,6 +91,7 @@ actual fun InPagePlayerSurface(
     config: InPagePlayerConfig,
     modifier: Modifier,
     onActionsReady: (InPagePlayerActions) -> Unit,
+    modeState: PagePlayerModeState?,
 ) {
     val controller = kernel as PlayerController
     val overlay = remember(controller) { PlayerOverlay(controller.swingComponent, controller) }
@@ -125,6 +157,7 @@ private fun InPagePlayerConfig.toOverlayConfig(overlay: PlayerOverlay): PlayerOv
     onKernelSelected = { kernel -> onKernelSelected(kernel.id) },
     introTarget = introMark,
     onDownloadEpisode = onDownloadEpisode,
+    onDownloadAllEpisodes = onDownloadAllEpisodes,
     onChannelList = channelPanel?.let { spec ->
         Runnable {
             overlay.showSidePanel(

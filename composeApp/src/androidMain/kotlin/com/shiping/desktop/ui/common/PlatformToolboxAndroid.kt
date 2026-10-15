@@ -67,7 +67,11 @@ actual val isEpisodeDownloadSupported: Boolean = true
 /** 提交剧集下载：构造下载实体入队（请求头序列化 JSON 落库） */
 actual suspend fun submitEpisodeDownload(request: EpisodeDownloadRequest): String? {
     val entity = DownloadEntity(
-        contentId = "${request.vodId}|${request.sourceUrl}|${request.episodeName}",
+        contentId = episodeDownloadContentId(
+            request.vodId,
+            request.sourceUrl,
+            request.episodeName.ifBlank { "第1集" },
+        ),
         title = request.episodeName.ifBlank { request.title }
             .let { name -> "${request.title}·$name" },
         vodPic = request.vodPic,

@@ -47,6 +47,8 @@ kotlin {
             api(project(":bridge"))
             // dex -> jar 转换（Maven Central 维护分支，版本对齐 desktop-probe 验证结果）
             implementation("de.femtopedia.dex2jar:dex-tools:2.4.28")
+            // 转换产物清洗：dex 伪修饰构造器（native/synchronized）JVM 校验拒收，ASM 清理
+            implementation("org.ow2.asm:asm:9.7.1")
             // JCE 扩展：payload 爬虫 AES/ECB/PKCS7Padding（JVM SunJCE 缺 PKCS7）
             implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
             // unidbg 需在编译类路径可见（FtyGuardEngine 继承 AbstractJni，Kotlin 解析超类型用）
@@ -56,6 +58,9 @@ kotlin {
             // 播放内核 JNA 绑定（mpv libmpv-2.dll / MDK mdk.dll / VLC 经 vlcj 定位 libvlc）
             implementation("net.java.dev.jna:jna:5.13.0")
             implementation("uk.co.caprica:vlcj:4.7.3")
+            // quickjs JS 爬虫引擎运行时（com.fongmi.quickjs.* 引擎源在 bridge；native 须另行提供
+            // libquickjs 至 java.library.path，缺失时 JS 源运行期报错、jar 源不受影响）
+            implementation("wang.harlon.quickjs:wrapper-java:3.2.3")
         }
         jvmTest.dependencies {
             // 单元测试：kotlin.test（JUnit4 runner）

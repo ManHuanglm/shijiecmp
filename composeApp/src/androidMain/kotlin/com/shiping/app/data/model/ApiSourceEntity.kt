@@ -28,6 +28,14 @@ data class ApiSourceEntity(
     @ColumnInfo(defaultValue = "") val spiderKey: String = "",
     /** 爬虫站点 ext 配置（对象/数组配置序列化为 JSON 字符串，传给 spider.init 的 extend） */
     @ColumnInfo(defaultValue = "") val ext: String = "",
+    /** 锁定源（防止误删/订阅覆盖，源列表默认隐藏） */
+    @ColumnInfo(defaultValue = "0") val locked: Boolean = false,
+    /** 该源是否记录播放历史 */
+    @ColumnInfo(defaultValue = "1") val playRecord: Boolean = true,
+    /** 该源是否参与聚合搜索 */
+    @ColumnInfo(defaultValue = "1") val searchable: Boolean = true,
+    /** 该源请求使用的 User-Agent */
+    @ColumnInfo(defaultValue = "") val userAgent: String = "",
     /** 创建时间戳 */
     val createdAt: Long = System.currentTimeMillis()
 )

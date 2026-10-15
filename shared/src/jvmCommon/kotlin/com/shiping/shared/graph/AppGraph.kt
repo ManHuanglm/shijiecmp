@@ -25,6 +25,9 @@ interface TvBoxImporter {
 
     /** 拉取并导入订阅配置（label 为展示用标签，如「饭太硬」），返回结果 */
     suspend fun import(url: String, label: String = ""): ImportResult
+
+    /** 剪贴板批量导入：直接解析配置文本（多仓 JSON 内容/合成多仓串），多仓返回仓库列表 */
+    suspend fun importRaw(content: String, label: String = ""): ImportResult
 }
 
 /**

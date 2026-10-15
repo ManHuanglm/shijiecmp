@@ -76,6 +76,24 @@ class DesktopDb(dbFile: File) {
             addedAt INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (vodId, sourceUrl)
         );
+        CREATE TABLE IF NOT EXISTS downloads (
+            contentId TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            vodPic TEXT NOT NULL DEFAULT '',
+            url TEXT NOT NULL,
+            quality TEXT NOT NULL DEFAULT '',
+            status INTEGER NOT NULL DEFAULT 0,
+            progress INTEGER NOT NULL DEFAULT 0,
+            bytesDownloaded INTEGER NOT NULL DEFAULT 0,
+            totalBytes INTEGER NOT NULL DEFAULT 0,
+            speedBytesPerSecond INTEGER NOT NULL DEFAULT 0,
+            errorMessage TEXT,
+            headersJson TEXT NOT NULL DEFAULT '',
+            createdAt INTEGER NOT NULL DEFAULT 0,
+            completedAt INTEGER NOT NULL DEFAULT 0,
+            localPath TEXT NOT NULL DEFAULT '',
+            completedSegments INTEGER NOT NULL DEFAULT 0
+        );
         """.trimIndent(),
     )
 
@@ -86,6 +104,7 @@ class DesktopDb(dbFile: File) {
             "ALTER TABLE api_sources ADD COLUMN playRecord INTEGER NOT NULL DEFAULT 1",
             "ALTER TABLE api_sources ADD COLUMN searchable INTEGER NOT NULL DEFAULT 1",
             "ALTER TABLE api_sources ADD COLUMN userAgent TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE downloads ADD COLUMN completedSegments INTEGER NOT NULL DEFAULT 0",
         ).forEach { sql ->
             runCatching { exec(sql) }
                 .onFailure { AppLog.i("DesktopDb", "迁移跳过: ${it.message}") }

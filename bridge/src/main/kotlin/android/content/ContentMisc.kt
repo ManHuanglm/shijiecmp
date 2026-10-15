@@ -79,6 +79,15 @@ class Intent {
 
     fun getComponent(): ComponentName? = component
 
+    /** 设置目标组件（桌面端不执行，仅记录便于调试查看） */
+    fun setClassName(pkg: String?, className: String?): Intent = apply {
+        this.component = if (pkg != null && className != null) ComponentName(pkg, className) else null
+    }
+
+    fun setClassName(cls: String?): Intent = apply {
+        this.component = cls?.let { ComponentName(it.substringBeforeLast('.'), it) }
+    }
+
     fun setPackage(pkg: String?): Intent = this
 
     fun putExtra(name: String?, value: Any?): Intent = this

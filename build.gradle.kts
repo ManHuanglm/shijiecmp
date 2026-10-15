@@ -9,4 +9,6 @@ plugins {
     id("com.google.devtools.ksp") version "1.9.24-1.0.20" apply false
     // Compose Multiplatform（composeApp 使用；与 Kotlin 1.9.24 配套）
     id("org.jetbrains.compose") version "1.6.11" apply false
+    // Chaquopy：Android 内嵌 Python（PY 爬虫引擎）。17.x 要求 AGP>=8.10，本项目 AGP 8.9.2 取 16.1.0（支持 8.0-8.13）
+    id("com.chaquo.python") version "16.1.0" apply false
 }

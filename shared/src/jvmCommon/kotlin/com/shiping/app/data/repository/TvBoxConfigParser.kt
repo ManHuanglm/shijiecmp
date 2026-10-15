@@ -50,6 +50,8 @@ object TvBoxConfigParser {
         val ext: String = "",
         /** 站点 key 字段（TVBox 站点唯一标识，同 api 的多源靠它区分），仅 type==3 使用，缺省回退 url */
         val siteKey: String = "",
+        /** 配置 searchable 字段（对齐 FongMi：缺省/1 可搜，0 不参与聚合搜索） */
+        val searchable: Boolean = true,
     )
 
     /** 前缀拼接式解析接口 */
@@ -225,7 +227,7 @@ object TvBoxConfigParser {
      * 逐候选尝试解析，成功即返回。
      */
     private fun parseJsonBody(raw: String): JsonElement? {
-        val trimmed = raw.trim().removePrefix("\uFEFF")
+        val trimmed = repairUnquotedKeys(raw.trim().removePrefix("\uFEFF"))
         // 明文整体 JSON（首尾锚齐全）优先整体解析：数组式配置 [{...},...] 若走下方
         // 对象锚扫描，会被数组内最后一个对象短路成单站点对象而丢失其余条目
         if (trimmed.length >= 2) {
@@ -253,6 +255,22 @@ object TvBoxConfigParser {
         }
         return null
     }
+
+    /**
+     * 修复行首缺失开头引号的键名（肥猫等配置的手写笔误，如 `ext": {...}`）：
+     * 仅处理行首标识符后紧跟 `":` 的形态（正常 JSON 键名以引号开头，不会命中）。
+     * 不修复会让 stripComments 的字符串状态机错位——后续字符串内的 `//` 被误当注释删除，
+     * JSON 被二次破坏导致整份解析失败。
+     */
+    private fun repairUnquotedKeys(text: String): String =
+        if (UNQUOTED_KEY.containsMatchIn(text)) {
+            text.replace(UNQUOTED_KEY) { match -> "${match.groupValues[1]}\"${match.groupValues[2]}\":" }
+        } else {
+            text
+        }
+
+    /** 行首缺开头引号的键名：前导空白 + 标识符 + `":`（^ 多行模式） */
+    private val UNQUOTED_KEY = Regex("(?m)^([ \\t]+)?([A-Za-z_][A-Za-z0-9_]*)\":")
 
     /** 移除字符串外的行注释与块注释（字符串内的 "//" 等不受影响） */
     private fun stripComments(body: String): String {
@@ -293,15 +311,15 @@ object TvBoxConfigParser {
     // region 结构解析
 
     private fun parseObject(obj: JsonObject): Result {
-        // 多仓：urls / warehouse / storeHouse 数组
+        // 多仓：urls / warehouse / storeHouse 数组（元素名/址兼容中英文键，如「仓名」「地址」）
         val warehouses = mutableListOf<Pair<String, String>>()
         for (key in listOf("urls", "warehouse", "storeHouse", "storehouses")) {
             val arr = obj.get(key)?.takeIf { it.isJsonArray }?.asJsonArray ?: continue
             for (item in arr) {
                 val o = item.takeIf { it.isJsonObject }?.asJsonObject ?: continue
-                val name = optString(o, "name", "title", "sourceName").orEmpty()
-                val url = optString(o, "url", "sourceUrl")
-                if (!url.isNullOrBlank() && url.startsWith("http")) {
+                val name = optString(o, "name", "title", "sourceName", "仓名").orEmpty()
+                val url = optString(o, "url", "sourceUrl", "地址", "仓址")
+                if (!url.isNullOrBlank() && (url.startsWith("http") || url.startsWith("clan://") || url.startsWith("file:"))) {
                     warehouses += name.ifBlank { url } to url.trim()
                 }
             }
@@ -346,32 +364,60 @@ object TvBoxConfigParser {
                 sites += TvBoxSite(
                     name, api, isXml = false, type = SITE_TYPE_SPIDER,
                     jar = jarUrl, ext = optExt(o), siteKey = siteKey,
+                    searchable = isSearchable(o),
                 )
                 continue
             }
-            // 其余需要爬虫运行时（带 jar、type 3 非 csp 等）或非直连的站点：不提取仅计数
+            // JS/PY 爬虫源（type 3 且 api 为 http/本地的 .js/.py 地址、无 jar）：提取后由运行时
+            // quickjs 引擎分流（api=js 引擎/聚合器地址，ext=具体爬虫脚本）；本地路径导入时改写 clan://
+            if (type == SITE_TYPE_SPIDER && isScriptApi(api) && jar == null) {
+                val name = optString(o, "name") ?: optString(o, "key") ?: "未命名"
+                val siteKey = optString(o, "key")?.trim().orEmpty().ifBlank { api }
+                sites += TvBoxSite(
+                    name, api, isXml = false, type = SITE_TYPE_SPIDER,
+                    jar = "", ext = optExt(o), siteKey = siteKey,
+                    searchable = isSearchable(o),
+                )
+                continue
+            }
+            // 其余需要爬虫运行时（带 jar、type 3 非直连等）或非直连的站点：不提取仅计数
             if (!api.startsWith("http") || jar != null || (type != 0 && type != 1)) {
                 spider++
                 continue
             }
             val name = optString(o, "name") ?: optString(o, "key") ?: "未命名"
+            val searchable = isSearchable(o)
             val xmlEndpoint = XML_SUFFIX.find(api) != null
             // XML 接口地址以 /at/xml 结尾时剥掉后缀即为 JSON 接口（与 type 无关，V1/V10 均适用）
             when {
-                xmlEndpoint -> sites += TvBoxSite(name, api.replace(XML_SUFFIX, ""), isXml = false)
-                type == 1 -> sites += TvBoxSite(name, api, isXml = true)
-                else -> sites += TvBoxSite(name, api, isXml = false)
+                xmlEndpoint -> sites += TvBoxSite(name, api.replace(XML_SUFFIX, ""), isXml = false, searchable = searchable)
+                type == 1 -> sites += TvBoxSite(name, api, isXml = true, searchable = searchable)
+                else -> sites += TvBoxSite(name, api, isXml = false, searchable = searchable)
             }
         }
         return Result(ok = true, sites = sites, spiderCount = spider, spiderJar = globalSpiderJar)
     }
 
-    /** 提取 jar 地址：保留分号分隔完整串（备用地址/md5 校验段由运行时解析），仅要求首段为 http */
+    /**
+     * 提取 jar 地址：保留分号分隔完整串（备用地址/md5 校验段由运行时解析），
+     * 首段为 http 或本地包地址（clan://、file://、./ 相对路径——相对路径在导入时按 json 基准目录改写）。
+     */
     private fun extractJarUrl(raw: String?): String? {
         val value = raw?.trim().orEmpty()
         if (value.isEmpty()) return null
         val first = value.substringBefore(";").trim()
-        return value.takeIf { first.startsWith("http") }
+        return value.takeIf {
+            first.startsWith("http") || first.startsWith("clan://") ||
+                first.startsWith("file:") || first.startsWith("./")
+        }
+    }
+
+    /** js/py 脚本 api：http(s) 远程或本地包地址（clan://、file://、./ 相对路径）的 .js/.py 文件 */
+    private fun isScriptApi(api: String): Boolean {
+        val path = api.substringBefore('?').lowercase()
+        if (!path.endsWith(".js") && !path.endsWith(".py")) return false
+        return api.startsWith("http") || api.startsWith("clan://") ||
+            api.startsWith("file:") || api.startsWith("./")
     }
 
     private fun extractParses(obj: JsonObject): List<TvBoxParse> {
@@ -397,12 +443,41 @@ object TvBoxConfigParser {
             val o = item.takeIf { it.isJsonObject }?.asJsonObject ?: continue
             val url = optString(o, "url")?.trim().orEmpty()
             val type = optInt(o, "type")
-            // type 0 为远程播放列表（m3u/txt），其余为内嵌频道组，不处理
-            if (type != 0 || !url.startsWith("http")) continue
+            // 收远程播放列表型（type 0 标准型 / 3 聚合型如肥猫 Gather），其余为内嵌频道组不处理
+            if ((type != 0 && type != 3) || !url.startsWith("http")) continue
             val name = optString(o, "name") ?: "未命名"
             result += TvBoxLive(name, url)
         }
         return result
+    }
+
+    // endregion
+
+    // region HTML 落地页
+
+    /**
+     * HTML 落地页（游魂等接口源发布页）提取候选配置地址：
+     * 内容形似 HTML 时从链接/脚本里抓取 http(s) 地址，过滤静态资源并相对地址
+     * 按 baseUrl 补全，按「配置特征优先级」排序返回（json/txt 后缀 > tvbox 类路径词 > 其余）。
+     * 非 HTML 内容返回空列表。
+     */
+    fun landingCandidates(data: ByteArray, baseUrl: String): List<String> {
+        if (data.size < 16) return emptyList()
+        val head = String(data.copyOfRange(0, minOf(data.size, 512)), Charsets.ISO_8859_1).lowercase()
+        if (!head.contains("<!doctype html") && !head.contains("<html")) return emptyList()
+        val text = String(data, Charsets.UTF_8)
+        val links = LINK_PATTERN.findAll(text)
+            .map { it.value }
+            .filter { link -> !STATIC_RESOURCE.containsMatchIn(link) }
+            .map { link -> runCatching { java.net.URI(baseUrl).resolve(link).toString() }.getOrDefault(link) }
+            .distinct()
+            .toList()
+        return links.sortedWith(
+            compareBy(
+                { if (CONFIG_SUFFIX.find(it) != null) 0 else 1 },
+                { if (CONFIG_PATH_WORD.find(it) != null) 0 else 1 },
+            ),
+        ).take(LANDING_MAX_CANDIDATES)
     }
 
     // endregion
@@ -420,6 +495,12 @@ object TvBoxConfigParser {
 
     private fun optInt(o: JsonObject, key: String): Int =
         optString(o, key)?.toDoubleOrNull()?.toInt() ?: -1
+
+    /** searchable 字段（对齐 FongMi Site.isSearchable）：缺省视为可搜，仅显式 1 可搜、0 不参与搜索 */
+    private fun isSearchable(o: JsonObject): Boolean {
+        val raw = optInt(o, "searchable")
+        return raw == -1 || raw == 1
+    }
 
     /** ext 字段容错提取：字符串原样返回；对象/数组序列化为紧凑 JSON 字符串（与 FongMi 传参语义一致） */
     private fun optExt(o: JsonObject): String {
@@ -442,6 +523,14 @@ object TvBoxConfigParser {
     private val XML_SUFFIX = Regex("/at/xml\\b", RegexOption.IGNORE_CASE)
     private val BASE64_SHELL = Regex("[A-Za-z0-9]{8}\\*\\*")
     private val WHITESPACE = Regex("\\s+")
+
+    /** HTML 落地页提取：地址匹配、静态资源排除、配置特征（后缀/路径词）与候选数上限 */
+    private val LINK_PATTERN = Regex("https?://[A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-]+")
+    private val STATIC_RESOURCE = Regex("\\.(css|js|mjs|png|jpe?g|gif|webp|svg|ico|woff2?|ttf)([?#].*)?$", RegexOption.IGNORE_CASE)
+    private val CONFIG_SUFFIX = Regex("\\.(json|txt)([?#].*)?$", RegexOption.IGNORE_CASE)
+    private val CONFIG_PATH_WORD = Regex("/(tv|tvbox|config|box)([/?#]|$)", RegexOption.IGNORE_CASE)
+    private const val LANDING_MAX_CANDIDATES = 5
+
     private val JPEG_EOI = byteArrayOf(0xFF.toByte(), 0xD9.toByte())
     private val PNG_IEND = byteArrayOf(
         0x49, 0x45, 0x4E, 0x44, 0xAE.toByte(), 0x42, 0x60, 0x82.toByte(),

@@ -136,6 +136,8 @@ data class Vod(
     @SerializedName("vod_play_from") val vodPlayFrom: String = "",
     @SerializedName("vod_play_url") val vodPlayUrl: String = "",
     @SerializedName("type_name") val typeName: String = "",
+    /** TVBox action 协议标记：非空时点击应调爬虫 action（网盘源登入/清除 Cookie 等），不进详情 */
+    @SerializedName("action") val action: String = "",
 ) {
     /**
      * 解析播放源列表。

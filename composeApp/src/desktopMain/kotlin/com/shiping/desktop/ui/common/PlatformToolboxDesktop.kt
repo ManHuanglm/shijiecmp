@@ -1,11 +1,12 @@
 package com.shiping.desktop.ui.common
 
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -17,9 +18,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.shiping.desktop.data.download.DesktopDownloadRecord
+import com.shiping.desktop.data.prefs.DesktopPrefs
 import com.shiping.desktop.di.AppContainer
 import com.shiping.desktop.ui.AppViewModel
 import com.shiping.desktop.util.AppLog
+import com.google.gson.Gson
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.io.File
@@ -53,48 +57,91 @@ actual fun snapshotLogEntries(): List<LogEntryView> =
 /** 清空桌面日志缓冲 */
 actual fun clearLogs() = AppLog.clear()
 
-/** 桌面不支持剧集下载（Android 专属：导出系统相册） */
-actual val isEpisodeDownloadSupported: Boolean = false
+/** 桌面支持剧集下载（经 DesktopDownloadEngine 落盘到数据目录 downloads） */
+actual val isEpisodeDownloadSupported: Boolean = true
 
-/** 桌面无下载器：返回 null 由调用方提示 */
-actual suspend fun submitEpisodeDownload(request: EpisodeDownloadRequest): String? = null
+/** 提交剧集下载：构造下载记录入队（请求头序列化 JSON 落库） */
+actual suspend fun submitEpisodeDownload(request: EpisodeDownloadRequest): String? {
+    val engine = AppContainer.get().downloadEngine
+    val name = request.episodeName.ifBlank { "第1集" }
+    val record = DesktopDownloadRecord(
+        contentId = episodeDownloadContentId(request.vodId, request.sourceUrl, name),
+        title = "${request.title}·$name",
+        vodPic = request.vodPic,
+        url = request.playUrl,
+        headersJson = runCatching { Gson().toJson(request.headers) }.getOrDefault(""),
+        createdAt = System.currentTimeMillis(),
+    )
+    return runCatching { engine.enqueue(record) }
+        .getOrElse { "加入下载队列失败：${it.message ?: "未知错误"}" }
+}
 
 /** 桌面不支持扫码导入（无摄像头） */
 actual fun launchConfigScanner(): Boolean = false
 
-/** 自定义存储路径页（桌面）：目录选择覆盖持久化，重启生效 */
+/** 自定义存储路径页（桌面）：主数据目录 + 下载目录双条目，点击选择目录 */
 @Composable
 actual fun StoragePathPageContent(app: AppViewModel) {
+    val container = AppContainer.get()
     val defaultDir = File(System.getProperty("user.home"), ".shiping-desktop")
-    var currentPath by remember { mutableStateOf(AppContainer.get().dataDir.absolutePath) }
+    var mainPath by remember { mutableStateOf(container.dataDir.absolutePath) }
+    var downloadPath by remember {
+        mutableStateOf(container.prefs.getString(DesktopPrefs.KEY_DOWNLOAD_DIR, "")
+            .takeIf { it.isNotBlank() }
+            ?: File(container.dataDir, "downloads").absolutePath)
+    }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("当前数据目录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        StoragePathItem(title = "主数据存储路径", path = mainPath) {
+            pickDirectory("选择主数据存储目录", mainPath)?.let { path ->
+                AppContainer.writeDataDirOverride(defaultDir, path)
+                mainPath = path
+                app.showMessage("已保存主数据存储路径，重启应用后生效")
+            }
+        }
+        StoragePathItem(title = "下载存储路径", path = downloadPath) {
+            pickDirectory("选择下载存储目录", downloadPath)?.let { path ->
+                container.prefs.put(DesktopPrefs.KEY_DOWNLOAD_DIR, path)
+                downloadPath = path
+                app.showMessage("下载存储路径已更新，新下载任务即时生效")
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        OutlinedButton(onClick = {
+            AppContainer.writeDataDirOverride(defaultDir, "")
+            container.prefs.put(DesktopPrefs.KEY_DOWNLOAD_DIR, null)
+            mainPath = defaultDir.absolutePath
+            downloadPath = File(defaultDir, "downloads").absolutePath
+            app.showMessage("已恢复默认路径，主数据目录重启应用后生效")
+        }) { Text("恢复默认") }
+    }
+}
+
+/** 存储路径条目：标题 + 当前路径两行，整行可点击更改 */
+@Composable
+private fun StoragePathItem(title: String, path: String, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp),
+    ) {
+        Text(text = title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+        Spacer(modifier = Modifier.height(4.dp))
         Text(
-            currentPath,
+            text = path,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                runCatching {
-                    val chooser = JFileChooser(currentPath).apply {
-                        fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-                        dialogTitle = "选择数据目录"
-                    }
-                    if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                        val path = chooser.selectedFile.absolutePath
-                        AppContainer.writeDataDirOverride(defaultDir, path)
-                        currentPath = path
-                        app.showMessage("已保存自定义数据目录，重启应用后生效")
-                    }
-                }.onFailure { app.showMessage("选择目录失败：${it.message}") }
-            }) { Text("更改目录…") }
-            OutlinedButton(onClick = {
-                AppContainer.writeDataDirOverride(defaultDir, "")
-                currentPath = defaultDir.absolutePath
-                app.showMessage("已恢复默认数据目录，重启应用后生效")
-            }) { Text("恢复默认") }
-        }
+    }
+}
+
+/** 桌面目录选择（EDT 阻塞弹出），取消返回 null */
+private fun pickDirectory(title: String, current: String): String? {
+    val chooser = JFileChooser(current).apply {
+        fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+        dialogTitle = title
+    }
+    return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+        chooser.selectedFile.absolutePath
+    } else {
+        null
     }
 }

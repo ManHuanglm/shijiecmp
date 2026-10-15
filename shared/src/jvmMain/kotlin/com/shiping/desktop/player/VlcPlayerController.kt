@@ -1,4 +1,4 @@
-﻿package com.shiping.desktop.player
+package com.shiping.desktop.player
 
 import com.shiping.desktop.util.AppLog
 import java.io.File
@@ -28,6 +28,9 @@ class VlcPlayerController(prefs: com.shiping.shared.prefs.KeyValueStore) : Abstr
 
         /** 应用目录捆绑 VLC 的候选目录名（含 libvlc.dll） */
         private const val BUNDLED_VLC_DIR = "vlc"
+
+        /** 直播暂停恢复的出画面等待（毫秒，超时重载回直播边缘） */
+        private const val LIVE_RESUME_STALL_MS = 8000L
     }
 
     override val logTag: String = "VlcPlayer"
@@ -74,6 +77,7 @@ class VlcPlayerController(prefs: com.shiping.shared.prefs.KeyValueStore) : Abstr
     /** 实际播放：UA/Referer 经 VLC 选项注入，其余 header 已由调用方包装为 /hdr 代理地址 */
     override fun actualPlay(request: PlayRequest) {
         val player = player ?: return
+        lastRequest = request
         _errorText.value = null
         _timeMs.value = 0L
         _durationMs.value = 0L
@@ -107,7 +111,42 @@ class VlcPlayerController(prefs: com.shiping.shared.prefs.KeyValueStore) : Abstr
 
     override fun togglePlayPause() {
         val player = player ?: return
+        val wasPlaying = runCatching { player.status().isPlaying }.getOrDefault(false)
         runCatching { player.controls().pause() }
+        // 直播流暂停恢复：live 窗口暂停期间滚过，恢复后可能追不上（持续转圈）；
+        // 恢复后短时间仍未出画面则整体重载当前地址，重新对齐直播边缘
+        if (!wasPlaying && _durationMs.value <= 0L) monitorLiveResume()
+    }
+
+    /** 最近一次播放请求（直播恢复监控重载用） */
+    @Volatile
+    private var lastRequest: PlayRequest? = null
+
+    /** 直播恢复监控序号（新恢复动作使旧监控线程放弃干预） */
+    private val resumeMonitorSeq = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** 恢复播放后 [LIVE_RESUME_STALL_MS] 仍未出画面则重载当前流（回直播边缘）；已播放/已暂停/已换流则不干预 */
+    private fun monitorLiveResume() {
+        val request = lastRequest ?: return
+        val seq = resumeMonitorSeq.incrementAndGet()
+        Thread {
+            try {
+                Thread.sleep(LIVE_RESUME_STALL_MS)
+            } catch (_: InterruptedException) {
+                return@Thread
+            }
+            val player = player ?: return@Thread
+            if (seq != resumeMonitorSeq.get()) return@Thread
+            val playing = runCatching { player.status().isPlaying }.getOrDefault(true)
+            if (playing || lastRequest !== request) return@Thread
+            AppLog.i(logTag, "直播恢复超时未出画面，重载对齐直播边缘")
+            _isBuffering.value = true
+            actualPlay(request)
+        }.apply {
+            name = "live-resume-watch"
+            isDaemon = true
+            start()
+        }
     }
 
     override fun seekTo(ms: Long) {
@@ -236,6 +275,7 @@ class VlcPlayerController(prefs: com.shiping.shared.prefs.KeyValueStore) : Abstr
      */
     private fun applyVideoScale(player: MediaPlayer, scale: String) {
         when (scale) {
+            "16:9", "9:16", "4:3" -> player.video().setAspectRatio(scale)
             "stretch", "crop" -> {
                 val w = canvas.width.coerceAtLeast(1)
                 val h = canvas.height.coerceAtLeast(1)

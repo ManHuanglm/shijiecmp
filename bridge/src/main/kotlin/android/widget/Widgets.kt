@@ -110,3 +110,47 @@ class Toast private constructor(private val message: CharSequence?) {
         fun makeText(context: Context?, resId: Int, duration: Int): Toast = Toast("")
     }
 }
+
+/** 桌面 stub：基础适配器（爬虫自建 adapter 的父类，默认实现 ListAdapter） */
+abstract class BaseAdapter : ListAdapter {
+
+    override fun getCount(): Int = 0
+
+    override fun getItem(position: Int): Any? = null
+
+    override fun getItemId(position: Int): Long = 0L
+
+    override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View = View()
+
+    fun notifyDataSetChanged() = Unit
+}
+
+/** 桌面 stub：AbsListView/GridView（pg Config 网盘选择列表用，仅类加载校验） */
+open class AbsListView : AdapterView<Any>() {
+
+    open class LayoutParams : ViewGroup.MarginLayoutParams {
+
+        constructor()
+
+        constructor(width: Int, height: Int) : super(width, height)
+    }
+}
+
+open class GridView : AbsListView()
+
+/** 桌面 stub：复选框（pg Config token 配置界面用，仅类加载校验） */
+open class CompoundButton : Button() {
+
+    interface OnCheckedChangeListener {
+
+        fun onCheckedChanged(buttonView: CompoundButton?, isChecked: Boolean)
+    }
+
+    fun setOnCheckedChangeListener(listener: OnCheckedChangeListener?) = Unit
+
+    fun isChecked(): Boolean = false
+
+    fun setChecked(checked: Boolean) = Unit
+}
+
+open class CheckBox : CompoundButton()

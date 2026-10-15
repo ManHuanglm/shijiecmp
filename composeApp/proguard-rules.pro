@@ -18,6 +18,22 @@
 -dontwarn okio.**
 -keep class com.google.gson.** { *; }
 -dontwarn com.google.gson.**
+# zxing：App 自身只引用解码侧（QrCodeAnalyzer），编码侧 EncodeHintType/QRCodeWriter 无
+# 引用会被 R8 移除；南风 Bili 爬虫扫码登录（checkLoginState false → 生成二维码）直接
+# new EncodeHintType，缺类主线程 NoClassDefFoundError 闪退（2026-10-12 模拟器日志实证）
+-keep class com.google.zxing.** { *; }
+-dontwarn com.google.zxing.**
+# quickjs JS 爬虫引擎（FongMi 移植）：Global 的 @JSMethod 反射注册、Local 经 wrapper
+# newInstance 反射构造、Req/Res 走 Gson @SerializedName——混淆任一环即 JS 源全灭
+# （2026-10-13 模拟器实证：Local has no zero argument constructor）
+-keep class com.fongmi.quickjs.** { *; }
+-dontwarn com.fongmi.quickjs.**
+# Chaquopy PY 爬虫引擎：Python 侧 stub 经反射调用 Java 方法（Loader/Spider 与 com.chaquo
+# 运行时），drpy 脚本按方法名约定调用 Spider 基类接口，混淆任一环 PY 源全灭
+-keep class com.fongmi.chaquo.** { *; }
+-dontwarn com.fongmi.chaquo.**
+-keep class com.chaquo.python.** { *; }
+-dontwarn com.chaquo.python.**
 
 # ===== Gson 模型（@SerializedName 字段名即 JSON 契约，禁止混淆字段）=====
 # shared jvmCommon TVBox/CMS 模型（ApiResponse/Vod/Category 等）

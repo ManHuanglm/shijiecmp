@@ -30,6 +30,14 @@ object Constants {
     /** 搜索防抖毫秒 */
     const val SEARCH_DEBOUNCE_MS = 300L
 
+    /** 搜索热搜词（搜索页未搜索时标签展示 + 引导点击） */
+    val RECOMMEND_SEARCHES = listOf(
+        "狂飙", "三体", "庆余年", "伪装者", "人民的名义", "琅琊榜", "甄嬛传", "知否知否",
+        "斗罗大陆", "凡人修仙传", "完美世界", "遮天", "海贼王", "火影忍者", "灌篮高手",
+        "流浪地球", "满江红", "长津湖", "战狼", "独行月球", "消逝的光芒", "新生",
+        "新闻联播", "天下第一", "神探狄仁杰", "白夜追凶", "隐秘的角落", "漫长的季节",
+    )
+
     /** 直链后缀 */
     val DIRECT_STREAM_SUFFIXES = listOf(".m3u8", ".mp4", ".flv", ".ts")
 
@@ -60,11 +68,23 @@ object Constants {
     /** 倍速档位 */
     val PLAYBACK_SPEEDS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
 
+    /** 下载限速档位（KB/s），0 表示不限速 */
+    val DOWNLOAD_SPEED_OPTIONS = listOf(0, 512, 1024, 2048, 5120)
+
+    /** 下载限速档位显示文本（与 DOWNLOAD_SPEED_OPTIONS 一一对应） */
+    val DOWNLOAD_SPEED_LABELS = listOf("不限速", "512 KB/s", "1 MB/s", "2 MB/s", "5 MB/s")
+
     /** 快进快退步长档位（秒，0 表示不展示按钮） */
     val SEEK_STEPS = listOf(0, 5, 10, 15, 30, 60)
 
     /** 长按倍速档位 */
     val LONG_PRESS_SPEEDS = listOf(2.0f, 3.0f)
+
+    /** 手势快进/快退单步毫秒（每像素） */
+    const val GESTURE_SEEK_MS_PER_PX = 1000L
+
+    /** 手势快进最大偏移毫秒 */
+    const val GESTURE_SEEK_MAX_MS = 600_000L
 
     /** 字幕颜色循环档位（点击切换，#RRGGBB） */
     val SUB_COLORS = listOf(

@@ -94,7 +94,7 @@ class TvRepository(private val db: DesktopDb, private val prefs: DesktopPrefs) :
         refresh()
     }
 
-    /** 批量添加直播源：每行一个源，支持 仅url / 名称,url / 名称,url,备注（备注可含中英文逗号），返回导入条数 */
+    /** 批量添加直播源：每行一个源，支持 仅url / 名称,url / 名称,url,备注（备注可含中英文逗号），按 URL 去重返回实际新增条数 */
     override suspend fun batchInsert(text: String): Int = withContext(Dispatchers.IO) {
         val parsed = text.lines()
             .map { it.trim() }
@@ -109,9 +109,7 @@ class TvRepository(private val db: DesktopDb, private val prefs: DesktopPrefs) :
                 }
                 TvSourceEntity(name = name, url = url, note = parts.drop(2).joinToString(","))
             }
-        parsed.forEach { insert(it) }
-        refresh()
-        parsed.size
+        insertUnique(parsed)
     }
 
     /** 从本地 txt 文件导入直播源，返回导入条数（读取失败返回 0） */
@@ -119,6 +117,25 @@ class TvRepository(private val db: DesktopDb, private val prefs: DesktopPrefs) :
         val text = runCatching { java.io.File(path).readText(Charsets.UTF_8) }.getOrNull()
             ?: return@withContext 0
         batchInsert(text)
+    }
+
+    /** 批量去重插入：批内重复与库中已有 URL 均跳过（先到者优先），返回实际新增条数 */
+    override suspend fun insertUnique(sources: List<TvSourceEntity>): Int = withContext(Dispatchers.IO) {
+        if (sources.isEmpty()) return@withContext 0
+        val existing = db.query("SELECT url FROM tv_sources") { it.getString("url") }.toHashSet()
+        val seen = HashSet<String>()
+        var inserted = 0
+        for (source in sources) {
+            val url = source.url.trim()
+            if (url.isEmpty() || !seen.add(url) || !existing.add(url)) continue
+            db.insert(
+                "INSERT INTO tv_sources(name, url, note, createdAt) VALUES (?,?,?,?)",
+                listOf(source.name, url, source.note, source.createdAt),
+            )
+            inserted++
+        }
+        if (inserted > 0) refresh()
+        inserted
     }
 
     override suspend fun insert(source: TvSourceEntity): Long = withContext(Dispatchers.IO) {

@@ -1,6 +1,7 @@
-package com.shiping.app
+﻿package com.shiping.app
 
 import android.content.Context
+import java.io.File
 import com.shiping.app.data.local.AppDatabase
 import com.shiping.app.data.local.DataStoreKeyValueStore
 import com.shiping.app.data.player.Media3PlayerKernel
@@ -13,6 +14,7 @@ import com.shiping.app.data.repository.AndroidTvRepository
 import com.shiping.app.data.repository.AndroidVodRepository
 import com.shiping.app.data.spider.SpiderHttp
 import com.shiping.app.data.spider.SpiderRuntime
+import com.shiping.desktop.data.repository.ClanPaths
 import com.shiping.desktop.data.repository.TvBoxConfigImporter
 import com.shiping.shared.graph.AppGraph
 import com.shiping.shared.graph.ImportResult
@@ -28,6 +30,7 @@ import com.shiping.shared.repository.VodRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Android 端依赖容器：Room/DataStore 数据栈 + 爬虫运行时 + media3 播放内核。
@@ -79,11 +82,19 @@ object ShipingGraph : AppGraph {
     override val tvBoxImporterService: TvBoxImporter by lazy {
         val importer = TvBoxConfigImporter(apiSourceRepository, parseSourceRepository, tvRepository, SpiderHttp.client)
         object : TvBoxImporter {
-            override suspend fun import(url: String, label: String): ImportResult =
-                importer.import(url, label).let { ImportResult(it.messageText(), it.warehouses) }
+            override suspend fun import(url: String, label: String): ImportResult {
+                // 本地包导入：镜像配置到 filesDir/config.json（jar 内读取 <filesDir>/config.json 的包内约定）
+                ClanPaths.toFile(url)?.takeIf { f -> f.isFile }?.let { f ->
+                    runCatching { f.copyTo(java.io.File(contextRef!!.filesDir, "config.json"), overwrite = true) }
+                }
+                return importer.import(url, label).let { ImportResult(it.messageText(), it.warehouses) }
+            }
+
+            override suspend fun importRaw(content: String, label: String): ImportResult =
+                importer.importRaw(content, label).let { ImportResult(it.messageText(), it.warehouses) }
+
         }
     }
-
     lateinit var media3Kernel: Media3PlayerKernel
         private set
 
@@ -96,7 +107,31 @@ object ShipingGraph : AppGraph {
         tvRepository.refresh()
         playHistoryRepository.refresh()
         favoriteRepository.refresh()
+        syncSpiderHistoryPrefs()
     }
+
+    /**
+     * 同步播放历史片名到宿主 <pkg>_preferences（TVBox 爬虫约定：
+     * csp_Douban 等读取 historyvodname 作为猜你喜欢推荐源，缺失时 new JSONArray("") 直接报错）
+     */
+    private fun syncSpiderHistoryPrefs() {
+        appScope.launch {
+            playHistoryRepository.history.collect { list ->
+                runCatching {
+                    val context = contextRef ?: return@collect
+                    val names = org.json.JSONArray().apply {
+                        list.take(HISTORY_SPIDER_LIMIT).forEach { put(it.title) }
+                    }.toString()
+                    context.getSharedPreferences(
+                        "${context.packageName}_preferences",
+                        Context.MODE_PRIVATE,
+                    ).edit().putString("historyvodname", names).apply()
+                }
+            }
+        }
+    }
+
+    private const val HISTORY_SPIDER_LIMIT = 50
 
     @Volatile
     private var contextRef: Context? = null

@@ -27,7 +27,10 @@ object SpiderHttp {
         .addInterceptor { chain ->
             val request = chain.request()
             val builder = request.newBuilder()
-                .header("Referer", "${request.url.scheme}://${request.url.host}/")
+            // 显式设置的 header（如 /hdr 播放注入的 Referer）不得覆盖，否则触发 CDN 防盗链 403
+            if (request.header("Referer") == null) {
+                builder.header("Referer", "${request.url.scheme}://${request.url.host}/")
+            }
             if (request.header("User-Agent") == null) {
                 builder.header("User-Agent", BROWSER_UA)
             }

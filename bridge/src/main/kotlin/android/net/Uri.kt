@@ -19,6 +19,13 @@ class Uri private constructor(private val raw: String) {
 
     fun getPath(): String? = uri?.rawPath
 
+    /** 取路径最后一段（URL 解码；无路径返回 null，与 Android 一致） */
+    fun getLastPathSegment(): String? {
+        val path = uri?.rawPath ?: return null
+        if (path.isEmpty()) return null
+        return decodeValue(path.substringAfterLast('/'))
+    }
+
     fun getQuery(): String? = uri?.rawQuery
 
     fun getUserInfo(): String? = uri?.rawUserInfo?.let { decodeValue(it) }

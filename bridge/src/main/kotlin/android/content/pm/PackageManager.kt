@@ -13,6 +13,9 @@ open class PackageManager {
     open fun getApplicationInfo(packageName: String?, flags: Int): ApplicationInfo =
         ApplicationInfo().also { it.packageName = packageName ?: "" }
 
+    /** 桌面 stub：应用标签（TVBoxOSC 等爬虫 Init 引导读应用名时提供占位） */
+    open fun getApplicationLabel(info: ApplicationInfo?): CharSequence = "影视"
+
     class NameNotFoundException : Exception {
 
         constructor() : super()
